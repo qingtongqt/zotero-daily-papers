@@ -1,0 +1,23 @@
+# OS and Python-generated files
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Local environment and credentials (defaults remain tracked)
+.env
+.env.*
+!.env.example
+config.local.json
+config.personal.json
+local-auth-*.json
+zotero-cache.json
+history.json
+
+# Optional local task outputs
+/tmp/
+/temp/

@@ -1,0 +1,124 @@
+{
+  "zotero": {
+    "backend": "local",
+    "local_url": "http://127.0.0.1:23119",
+    "library_type": "user",
+    "library_id": "",
+    "api_key": "",
+    "root_collection": "Daily Papers",
+    "pending_collection": "待定",
+    "classification_mode": "pending",
+    "write_tiers": [
+      "must",
+      "worth"
+    ],
+    "attach_pdf": "upload",
+    "attanger_wait_seconds": 10,
+    "max_embedded_images_per_note": 4
+  },
+  "daily_papers": {
+    "directions": [
+      {
+        "id": "mllm-hallucination",
+        "name": "多模态大模型幻觉",
+        "keywords": [
+          ["hallucination", "hallucinations", "hallucinate", "object hallucination", "visual hallucination", "multimodal hallucination"],
+          "faithfulness",
+          "visual grounding",
+          ["language prior", "language priors"],
+          ["contrastive decoding", "visual contrastive decoding"],
+          ["pope", "chair", "hallusionbench", "amber", "mmhal"]
+        ]
+      },
+      {
+        "id": "post-training",
+        "name": "大模型后训练",
+        "keywords": [
+          ["post-training", "post training"],
+          ["rlhf", "reinforcement learning from human feedback"],
+          "rlaif",
+          ["rlvr", "verifiable reward", "verifiable rewards"],
+          ["grpo", "dapo", "gspo", "ppo"],
+          ["dpo", "simpo", "direct preference optimization", "preference optimization", "preference learning"],
+          ["reward model", "reward modeling"],
+          "process reward",
+          "instruction tuning",
+          "supervised fine-tuning",
+          "test-time scaling",
+          ["chain-of-thought", "long cot"],
+          "reasoning model",
+          "self-improvement",
+          "reward hacking"
+        ]
+      },
+      {
+        "id": "architecture",
+        "name": "大模型架构",
+        "keywords": [
+          "transformer architecture",
+          ["mixture of experts", "mixture-of-experts", "moe", "expert routing"],
+          ["state space model", "state space models", "mamba"],
+          "rwkv",
+          "linear attention",
+          "sparse attention",
+          "hybrid architecture",
+          "attention mechanism",
+          "attention sink",
+          ["long context", "long-context"],
+          ["positional encoding", "position encoding", "rope"],
+          ["kv cache", "kv-cache"],
+          "multi-token prediction",
+          "diffusion language model",
+          "looped transformer",
+          ["scaling law", "scaling laws"],
+          "vision encoder",
+          ["visual token", "visual tokens"],
+          "token compression",
+          ["unified multimodal", "native multimodal"]
+        ]
+      }
+    ],
+    "extra_keywords": [],
+    "negative_keywords": [
+      "medical imaging",
+      "medical image",
+      "radiology",
+      "protein",
+      "drug discovery",
+      "molecule",
+      "weather forecast",
+      "climate",
+      "speech synthesis",
+      "music generation",
+      "remote sensing",
+      "autonomous driving",
+      "robot manipulation",
+      "legged robot",
+      "point cloud"
+    ],
+    "focus_keywords": [
+      ["activation steering", "steering vector", "steering vectors", "representation steering"]
+    ],
+    "focus_bonus": 3,
+    "quality_boost": {
+      "venues": ["NeurIPS", "ICLR", "CVPR", "ICML", "AAAI", "ICCV", "ECCV", "EMNLP", "ACL",
+                 "ACM MM", "ACM Multimedia", "TPAMI", "Transactions on Pattern Analysis and Machine Intelligence"],
+      "venue_multiplier": 1.5,
+      "accepted_multiplier": 1.2
+    },
+    "arxiv_categories": [
+      "cs.CV",
+      "cs.CL",
+      "cs.LG",
+      "cs.AI",
+      "cs.MM"
+    ],
+    "recall_min_score": 3,
+    "top_n": 10,
+    "candidate_pool_size": 30,
+    "ranking": {
+      "backend": "agent",
+      "min_score": 2.0
+    }
+  }
+}

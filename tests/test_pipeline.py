@@ -1,0 +1,271 @@
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
+import copy
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from argparse import Namespace
+from pathlib import Path
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'skills/_zotero_shared'))
+import zotero_push as zp
+from zdp_config import classification_mode
+
+
+class MemoryZotero:
+    dry_run = False
+    base = 'memory://library'
+    cache_identity = base
+
+    def __init__(self, fail_digest=False):
+        self.items = {}
+        self.collections = {'CUSTOM01': {'key': 'CUSTOM01', 'name': 'Existing topic', 'parentCollection': False}}
+        self.events = []
+        self.fail_digest = fail_digest
+
+    def create(self, objects, path='/items'):
+        keys = []
+        for obj in objects:
+            if self.fail_digest and obj.get('itemType') == 'note' and not obj.get('parentItem'):
+                raise zp.ZoteroError('digest rejected')
+            key = f'KEY{len(self.items) + len(self.collections):05}'
+            self.events.append(('create', copy.deepcopy(obj)))
+            if path == '/collections':
+                self.collections[key] = {'key': key, **copy.deepcopy(obj)}
+            else:
+                self.items[key] = {'key': key, 'version': 1, 'data': copy.deepcopy(obj)}
+            keys.append(key)
+        return keys
+
+    def get_all(self, path, params=None):
+        if path == '/collections':
+            return [{'key': k, 'data': copy.deepcopy(v)} for k, v in self.collections.items()]
+        if path.endswith('/children'):
+            key = path.split('/')[2]
+            return [copy.deepcopy(v) for v in self.items.values() if v['data'].get('parentItem') == key]
+        return self.get(path, params)
+
+    def get(self, path, params=None):
+        params = params or {}
+        rows = list(self.items.values())
+        if params.get('q'):
+            rows = [r for r in rows if zp.item_matches(r['data'], params['q'])]
+        if params.get('tag'):
+            rows = [r for r in rows if set(params['tag']) <= {t['tag'] for t in r['data'].get('tags', [])}]
+        if params.get('itemType'):
+            rows = [r for r in rows if r['data']['itemType'] == params['itemType']]
+        return copy.deepcopy(rows)
+
+    def item(self, key):
+        return copy.deepcopy(self.items.get(key))
+
+    def patch(self, key, version, fields):
+        if self.items[key]['version'] != version:
+            raise zp.ZoteroError('version conflict')
+        self.items[key]['version'] += 1
+        self.items[key]['data'].update(copy.deepcopy(fields))
+        self.events.append(('patch', copy.deepcopy(fields)))
+
+    def select_link(self, key):
+        return f'zotero://select/library/items/{key}'
+
+
+class NoteCacheTests(unittest.TestCase):
+    def test_cache_permission_error_after_note_creation_still_returns_note_key(self):
+        zot = MemoryZotero()
+        parent = zot.create([{'itemType': 'preprint', 'title': 'Paper'}])[0]
+        stdout, stderr = StringIO(), StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            markdown = Path(tmp) / 'note.md'
+            markdown.write_text('# Reading note')
+            args = Namespace(item=parent, arxiv=None, markdown=str(markdown),
+                             kind='full-note', tags=None, replace=False)
+            with patch.object(zp, 'cache_path', return_value=Path(tmp) / 'cache.json'), \
+                    patch.object(Path, 'write_text', side_effect=PermissionError('sandbox denied')), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                zp.cmd_add_note(zot, {}, args)
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(zot.item(result['note_key'])['data']['parentItem'], parent)
+        self.assertIn('sandbox denied', stderr.getvalue())
+
+
+class PipelineTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = self.enterContext(tempfile.TemporaryDirectory())
+        self.path = Path(self.tmp)
+        for name, value in [('load_cache', {}), ('load_history', []), ('save_cache', None), ('save_history', None)]:
+            self.enterContext(patch.object(zp, name, return_value=value))
+        self.payload = {'date': '2026-11-04', 'digest_markdown': '# Daily\n[VCD](zotero:2311.16922)',
+                        'papers': [{'arxiv_id': '2311.16922', 'tier': 'must', 'review_markdown': '# Review'}]}
+        self.enriched = [{'arxiv_id': '2311.16922', 'title': 'VCD', 'abstract': 'Visual contrastive decoding'}]
+        (self.path / 'e.json').write_text(json.dumps(self.enriched))
+        self.args = Namespace(payload=str(self.path / 'p.json'), enriched=str(self.path / 'e.json'),
+                              output=str(self.path / 'result.json'))
+        self.cfg = {'root_collection': 'Daily Papers',
+                    'attach_pdf': 'none', 'max_embedded_images_per_note': 0}
+
+    def run_pipeline(self, zot):
+        (self.path / 'p.json').write_text(json.dumps(self.payload))
+        zp.cmd_push_daily(zot, self.cfg, self.args)
+        return json.loads((self.path / 'result.json').read_text())
+
+    def test_digest_precedes_paper_default_pending_and_rerun_is_idempotent(self):
+        zot = MemoryZotero()
+        # Pending mode ignores stale classification decisions.
+        self.payload['papers'][0]['collection_keys'] = ['STALEKEY']
+        result = self.run_pipeline(zot)
+        creates = [obj for event, obj in zot.events if event == 'create' and 'itemType' in obj]
+        self.assertEqual([o['itemType'] for o in creates], ['note', 'preprint', 'note'])
+        self.assertIn('https://arxiv.org/abs/2311.16922', creates[0]['note'])
+        key = result['papers']['2311.16922']['item_key']
+        pending = next(k for k, c in zot.collections.items() if c['name'] == '待定')
+        self.assertEqual(zot.items[key]['data']['collections'], [pending])
+        digest = zot.items[result['digest_note_key']]['data']['note']
+        self.assertIn(zot.select_link(key), digest)
+        self.assertEqual(result['stage'], 'papers_saved')
+        for item in zot.items.values():
+            self.assertFalse(any(t['tag'] == 'dp' or t['tag'].startswith('dp/')
+                                 for t in item['data'].get('tags', [])))
+        self.assertEqual(result['reading_queue'], [{'arxiv_id': '2311.16922', 'item_key': key}])
+        count = len(zot.items)
+        repeated = self.run_pipeline(zot)
+        self.assertEqual(len(zot.items), count)
+        self.assertFalse(repeated['papers']['2311.16922']['created'])
+
+    def test_digest_lives_directly_in_daily_papers(self):
+        zot = MemoryZotero()
+        result = self.run_pipeline(zot)
+        root = next(k for k, c in zot.collections.items() if c['name'] == 'Daily Papers')
+        self.assertEqual(zot.items[result['digest_note_key']]['data']['collections'], [root])
+        self.assertFalse([c for c in zot.collections.values()
+                          if c.get('parentCollection') == root])
+        count = len(zot.items)
+        again = self.run_pipeline(zot)                       # same-day rerun reuses the overview
+        self.assertEqual(again['digest_note_key'], result['digest_note_key'])
+        self.assertEqual(len(zot.items), count)
+
+    def test_digest_failure_prevents_paper_and_pending_creation(self):
+        zot = MemoryZotero(fail_digest=True)
+        with self.assertRaises(zp.ZoteroError):
+            self.run_pipeline(zot)
+        self.assertEqual(zot.items, {})
+        self.assertNotIn('待定', [c['name'] for c in zot.collections.values()])
+        saved = json.loads((self.path / 'result.json').read_text())
+        self.assertEqual(saved['stage'], 'digest_failed')
+
+    def test_existing_mode_requires_selection_before_any_write(self):
+        self.cfg['classification_mode'] = 'existing'
+        zot = MemoryZotero()
+        with self.assertRaises(zp.ZoteroError):
+            self.run_pipeline(zot)
+        self.assertEqual(zot.events, [])
+        self.payload['papers'][0]['collection_keys'] = ['CUSTOM01']
+        result = self.run_pipeline(zot)
+        key = result['papers']['2311.16922']['item_key']
+        self.assertEqual(zot.items[key]['data']['collections'], ['CUSTOM01'])
+        self.assertNotIn('待定', [c['name'] for c in zot.collections.values()])
+
+    def test_existing_no_match_uses_pending(self):
+        self.cfg['classification_mode'] = 'existing'
+        self.payload['papers'][0]['collection_keys'] = []
+        zot = MemoryZotero()
+        self.run_pipeline(zot)
+        self.assertIn('待定', [c['name'] for c in zot.collections.values()])
+
+    def test_failed_paper_not_in_reading_queue_or_history(self):
+        zot = MemoryZotero()
+        with patch.object(zp, 'ensure_paper', side_effect=zp.ZoteroError('paper rejected')), \
+                patch.object(zp, 'save_history') as history:
+            with self.assertRaises(SystemExit):
+                self.run_pipeline(zot)
+        result = json.loads((self.path / 'result.json').read_text())
+        self.assertEqual(result['stage'], 'papers_partial')
+        self.assertEqual(result['reading_queue'], [])
+        history.assert_called_once_with([])
+        self.assertEqual(len(zot.items), 1)  # overview remains
+
+    def test_readonly_dedup_merges_ids_and_retains_existing(self):
+        zot = MemoryZotero()
+        key = zot.create([zp.item_payload(self.enriched[0], ['CUSTOM01'], [])])[0]
+        args = Namespace(input=str(self.path/'input.json'), output=str(self.path/'checked.json'))
+        Path(args.input).write_text(json.dumps(self.enriched * 2))
+        before = len(zot.events)
+        zp.cmd_check_papers(zot, self.cfg, args)
+        result = json.loads(Path(args.output).read_text())
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['zotero']['item_key'], key)
+        self.assertEqual(len(zot.events), before)
+
+    def test_single_save_defaults_to_pending_without_agent_selection(self):
+        zot = MemoryZotero()
+        args = Namespace(arxiv='2311.16922', collections=None, directions=None,
+                         tags=None, classification_reason='')
+        with patch.object(zp, 'fetch_arxiv_meta', return_value=self.enriched[0]), \
+                patch('builtins.print') as output:
+            zp.cmd_upsert(zot, self.cfg, args)
+        result = json.loads(output.call_args.args[0])
+        self.assertTrue(result['created'])
+        pending = next(k for k, c in zot.collections.items() if c['name'] == '待定')
+        self.assertEqual(result['collection_keys'], [pending])
+        self.assertNotIn('Daily Papers', [c['name'] for c in zot.collections.values()])
+
+    def test_note_replacement_reuses_legacy_note_without_system_tags(self):
+        zot = MemoryZotero()
+        parent = zot.create([zp.item_payload(self.enriched[0], [], [])])[0]
+        legacy = zot.create([{'itemType': 'note', 'parentItem': parent,
+                             'note': '<h1>Old note</h1>',
+                             'tags': [{'tag': 'dp/full-note'}, {'tag': 'my-tag'}]}])[0]
+        markdown = self.path / 'note.md'
+        markdown.write_text('# VCD\n\nSome content')
+        args = Namespace(item=parent, arxiv=None, markdown=str(markdown), tags=None,
+                         kind='full-note', replace=False)
+        with self.assertRaises(SystemExit):
+            zp.cmd_add_note(zot, self.cfg, args)
+        args.replace = True
+        zp.cmd_add_note(zot, self.cfg, args)
+        self.assertEqual(len(zot.items), 2)
+        self.assertEqual(zot.items[legacy]['data']['tags'], [{'tag': 'my-tag'}])
+        self.assertEqual(zp.note_summary(zot.item(legacy))['kinds'], ['full-note'])
+        args.replace = False
+        with self.assertRaises(SystemExit):
+            zp.cmd_add_note(zot, self.cfg, args)
+
+    def test_note_type_and_date_matching(self):
+        for kind in ('review', 'digest', 'full-note', 'quick'):
+            day = '2026-11-04' if kind in ('review', 'digest') else None
+            markdown = zp.identify_note('# A paper', kind, day)
+            self.assertEqual(zp.identify_note(markdown, kind, day), markdown)
+            data = {'note': zp.to_note_html(markdown), 'tags': []}
+            self.assertTrue(zp.note_matches(data, kind, day))
+            if day:
+                self.assertFalse(zp.note_matches(data, kind, '2026-11-05'))
+
+
+class ClassificationSettingTests(unittest.TestCase):
+    def test_default_and_validation(self):
+        self.assertEqual(classification_mode({}), 'pending')
+        self.assertEqual(classification_mode({'classification_mode': 'existing'}), 'existing')
+        with self.assertRaises(ValueError):
+            classification_mode({'classification_mode': 'typo'})
+
+    def test_setting_preserves_other_personal_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'zotero-daily-papers'/'config.json'
+            path.parent.mkdir()
+            path.write_text(json.dumps({'zotero': {'pending_collection': 'Inbox'}, 'daily_papers': {'top_n': 4}}))
+            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py'), '--set-classification', 'existing'],
+                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            result = json.loads(path.read_text())
+            self.assertEqual(result['zotero']['classification_mode'], 'existing')
+            self.assertEqual(result['zotero']['pending_collection'], 'Inbox')
+            self.assertEqual(result['daily_papers']['top_n'], 4)
+
+
+if __name__ == '__main__':
+    unittest.main()
