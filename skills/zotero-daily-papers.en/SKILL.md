@@ -21,7 +21,7 @@ Let `{SKILL_DIR}` be the directory of this file and `{SHARED}` the sibling `../_
 
 Run `python3 "{SHARED}/zdp_config.py"` and take `runtime.temp_dir` as `TEMP_DIR`,
 then run `python3 "{SHARED}/zotero_push.py" check`. Local mode needs Zotero 10+ running with the local API enabled.
-For authorization and troubleshooting see [Zotero setup](../_zotero_shared/references/zotero-setup.md). Never print credentials or touch the database directly.
+For authorization and troubleshooting see [Zotero setup](../_zotero_shared/references/zotero-setup.en.md). Never print credentials or touch the database directly.
 Use a different `ZDP_TEMP_DIR` for each pipeline when running several at once.
 Write all reviews and notes in English (the effective config has `language: "en"`); if the user explicitly asks for Chinese, follow the user.
 

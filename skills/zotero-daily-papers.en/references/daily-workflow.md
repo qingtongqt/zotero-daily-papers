@@ -7,7 +7,7 @@ Reuse `{SKILL_DIR}`, `{SHARED}`, `TEMP_DIR` and the language from the entry skil
 Parse the time range: `today/daily` → no flag; `past 3 days/last three days` → `--days 3`; `past week/this week` → `--days 7`.
 
 ```bash
-python3 "{SKILL_DIR}/scripts/fetch_and_score.py" --output "{TEMP_DIR}/daily_papers_candidates.json" [--days N]
+python3 "{SHARED}/scripts/fetch_and_score.py" --output "{TEMP_DIR}/daily_papers_candidates.json" [--days N]
 ```
 
 The output is a request object with `status=awaiting_agent` (not the final list). **Score it yourself**; do not ask the user to score,
@@ -23,9 +23,9 @@ and do not call other paid model APIs:
 ```
 
 ```bash
-python3 "{SKILL_DIR}/scripts/agent_ranker.py" "{TEMP_DIR}/daily_papers_candidates.json" \
+python3 "{SHARED}/scripts/agent_ranker.py" "{TEMP_DIR}/daily_papers_candidates.json" \
   "{TEMP_DIR}/daily_papers_agent_scores.json" --output "{TEMP_DIR}/daily_papers_selected.json"
-python3 "{SKILL_DIR}/scripts/enrich_papers.py" "{TEMP_DIR}/daily_papers_selected.json" "{TEMP_DIR}/daily_papers_enriched.json"
+python3 "{SHARED}/scripts/enrich_papers.py" "{TEMP_DIR}/daily_papers_selected.json" "{TEMP_DIR}/daily_papers_enriched.json"
 ```
 
 Validate: `daily_papers_selected.json` is an array, and `daily_papers_ranking.json` has `status=complete` with a matching `run_id`.

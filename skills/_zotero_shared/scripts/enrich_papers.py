@@ -29,7 +29,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_zotero_shared"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from zdp_config import temp_file_path
 

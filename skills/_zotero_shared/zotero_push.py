@@ -81,6 +81,17 @@ class ZoteroError(RuntimeError):
     pass
 
 
+def file_uri_to_path(uri: str, windows: bool = os.name == "nt") -> str:
+    """Local path of a file:// URI; Windows URIs look like file:///C:/Users/... ."""
+    parsed = urlsplit(uri)
+    if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
+        raise ZoteroError("Zotero returned a non-local attachment URL")
+    path = unquote(parsed.path)
+    if windows and re.match(r"^/[A-Za-z]:([/\\]|$)", path):
+        path = path[1:]  # "/C:/x" is not a valid Windows path; drop the URI's leading slash.
+    return path
+
+
 def die(message: str, code: int = 1) -> None:
     print(f"[zotero_push] ERROR: {message}", file=sys.stderr)
     raise SystemExit(code)
@@ -324,11 +335,7 @@ class LocalZotero(Zotero):
             return {**result, "url": data.get("url"), "exists": False}
         try:
             _, _, raw = self._raw("GET", f"{self.base}/items/{key}/file/view/url")
-            uri = raw.decode().strip()
-            parsed = urlsplit(uri)
-            if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
-                raise ZoteroError("Zotero returned a non-local attachment URL")
-            path = Path(unquote(parsed.path))
+            path = Path(file_uri_to_path(raw.decode().strip()))
             result.update({"path": str(path), "exists": path.is_file()})
         except ZoteroError as err:
             result["error"] = str(err)

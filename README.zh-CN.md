@@ -11,7 +11,7 @@
 
 - **每日推荐**：抓取 arXiv 新论文和 Hugging Face 热门论文 → 按你的研究方向筛选评分 → 与 Zotero 已有条目查重 → 逐篇锐评。
 - **自动入库**：先保存当天的推荐总览，再把入选论文存入 Zotero（含 PDF 和点评子笔记），最后回填总览中的条目链接。
-- **精读笔记**：对必读论文读取全文，生成包含方法、公式、主结果表和关键图的精读笔记，保存为条目子笔记。
+- **精读笔记**：对必读论文读取全文，生成包含方法、公式、主结果表，以及关键图解读及原文页码链接的精读笔记（本地模式不嵌入图片），保存为条目子笔记。
 - **单独使用**：也可以只保存某篇论文，或只精读某篇论文。
 - **安全可重跑**：重复运行会先查重，复用已有条目和笔记，不会重复创建；保留你手动整理的分类和附件。
 - **本地优先**：通过 Zotero 10 的本机 API 写入，不需要云端 API key，不直接读写 `zotero.sqlite`。
@@ -67,6 +67,7 @@ python3 skills/_zotero_shared/zotero_push.py authorize   # Zotero 会弹出授�
 ### 3. 安装 Skill
 
 安装器把三个 Skill 和共享目录以符号链接的形式放进 Agent 的技能目录，不复制代码，重复运行是安全的。
+安装前会先检查能否创建链接；不能创建时（见 [Windows](#windows)）改用 `--copy`。
 
 用 `--lang` 选择语言：`en`（英文，默认）或 `zh`（中文）。语言决定 Skill 说明、Agent 写的点评/笔记、
 笔记标题标识（`【精读】` 或 `[Deep Read]`）和默认的「待定」分类名（`待定` 或 `Pending`），并写入个人配置。
@@ -96,19 +97,34 @@ python3 install.py --host codex --lang zh     # 安装到 ~/.agents/skills；不
 ```bash
 python3 install.py --host claude --project ~/work/my-project --lang zh    # -> my-project/.claude/skills
 python3 install.py --host codex  --project ~/work/my-project --lang zh    # -> my-project/.agents/skills
+python3 install.py --host claude --project --lang zh                      # -> 本仓库的 .claude/skills（在仓库根目录运行）
 ```
 
 项目级安装使用相对路径链接，项目和本目录一起移动后仍然有效（例如本仓库放在项目目录里，或作为 git submodule）。
 语言和个人配置仍由所有安装共用。要装到其他技能目录，用 `--target <目录>`。
 
 > 两个都用的话，两条命令各运行一次即可。它们链接到同一个项目目录，更新代码只需改一处。
-> 如需复制安装，把 `skills/`（英文版为 `skills-en/`，需 `cp -rL` 展开其中的链接）下的三个 Skill 和 `_zotero_shared/` 一起复制到宿主技能目录，保持四个目录同级；英文版再运行 `python3 skills/_zotero_shared/zdp_config.py --set-language en`。
+>
+> 如需复制安装，在上面任一命令后加 `--copy`；更新本仓库后重新运行同一条命令。
+> 也可以手动复制：把 `skills/_zotero_shared/` 和三个 Skill 复制到宿主技能目录，保持四个目录同级；中文复制 `skills/<名称>/`，英文复制 `skills/<名称>.en/` 并去掉 `.en` 后缀，
+> 然后**无论中英文**都要显式设置语言：`python3 skills/_zotero_shared/zdp_config.py --set-language zh`（英文用 `en`；不设置时默认为英文）。
 >
 > 切换已安装的语言：`python3 install.py --target <目录> --lang zh --update`。
 >
 > 从旧版本升级：配置默认语言现为英文，中文用户请运行 `python3 install.py --target <目录> --lang zh` 或 `python3 skills/_zotero_shared/zdp_config.py --set-language zh`，否则新论文会进入 `Pending` 分类、笔记标题变为英文。
 
-如果你的 Agent 不支持 Skill 目录，也可以直接在对话里让它读取 `skills/zotero-daily-papers/SKILL.md`。
+如果你的 Agent 不支持 Skill 目录，可以用 `--target <任意目录>` 安装，再在对话里让它读取 `<目录>/zotero-daily-papers/SKILL.md`。
+
+#### Windows
+
+Windows 上创建符号链接需要开启开发者模式（设置 → 系统 → 开发者选项）或使用管理员终端。
+两者都没有时，安装器会在改动任何文件前停止，并提示改用 `--copy`：
+
+```powershell
+python install.py --host claude --lang zh --copy    # 复制安装；git pull 后重新运行
+```
+
+仓库本身不包含符号链接，`core.symlinks` 为任何值都能正常检出。
 
 ### 4. 设置研究方向
 
@@ -249,8 +265,10 @@ python3 skills/_zotero_shared/zdp_config.py --set-classification existing
 
 装了 Attanger 时，脚本上传 PDF 后会等待几秒，并在结果中报告 PDF 的状态：
 
-- `moved`：已被 Attanger 移到你的文件目录。
+- `moved`：已被 Attanger 移到你的文件目录（结果中附新路径）。
 - `not_moved`：仍在 Zotero 存储目录。请在 Zotero 中右键该附件 → Attanger → 重命名并移动。
+- `unknown`：在 `attanger_wait_seconds` 秒内既没有找到已移动的 PDF，也没有找到仍在 Zotero 存储目录中的 PDF（例如下载失败只添加了链接，或磁盘上文件缺失），请在 Zotero 中检查该附件。
+- `skipped`：未检查，原因是使用 Web API 模式、`attach_pdf` 不是 `upload`、`attanger_wait_seconds` 为 `0`，或是 `--dry-run`。
 
 之后如果在 Zotero 中调整了论文分类，调整完成后再对 PDF 执行一次 Attanger 的「重命名并移动」。
 
@@ -284,11 +302,11 @@ python3 skills/_zotero_shared/zotero_push.py --dry-run upsert-paper --arxiv 2311
 ```text
 zotero-daily-papers/
 ├── skills/
-│   ├── zotero-daily-papers/           # 总入口、推荐脚本和锐评指南
+│   ├── zotero-daily-papers/           # 总入口和锐评指南（中文；`.en` 为英文版）
 │   ├── zotero-paper-save/             # 单篇入库与分类
 │   ├── zotero-paper-reader/           # 精读流程和笔记模板
-│   └── _zotero_shared/                # Zotero 脚本、默认配置和配置说明
-├── skills-en/                         # 英文版 Skill 说明（脚本链接到 skills/，共用一份代码）
+│   ├── zotero-*.en/                   # 英文版，安装时去掉 `.en` 后缀、使用相同名称
+│   └── _zotero_shared/                # 中英文共用：scripts/、Zotero 脚本、默认配置和配置说明
 ├── tests/
 └── install.py                         # Skill 安装器
 ```

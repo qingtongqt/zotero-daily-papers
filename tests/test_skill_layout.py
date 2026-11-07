@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('bundle_install', ROOT / 'install.py')
@@ -18,23 +19,26 @@ spec.loader.exec_module(installer)
 class LayoutTests(unittest.TestCase):
     def test_three_peer_entries_and_resolvable_references(self):
         self.assertFalse((ROOT / 'SKILL.md').exists())
-        for root in installer.LANGUAGES.values():
-            self.assertEqual({p.parent.name for p in root.glob('*/SKILL.md')}, set(installer.SKILLS))
-            for entry in [*root.glob('*/SKILL.md'), *root.glob('*/references/*.md')]:
-                if entry.name == 'SKILL.md':
-                    self.assertIn(f'name: {entry.parent.name}', entry.read_text())
-                for link in re.findall(r'\]\(([^)]+\.md(?:#[^)]*)?)\)', entry.read_text()):
-                    if ':' not in link:
-                        self.assertTrue((entry.parent / link.split('#')[0]).is_file(), (entry, link))
+        for lang in installer.LANGUAGES:
+            for name, source in installer.sources(lang).items():
+                if name == installer.SHARED:
+                    continue
+                self.assertIn(f'name: {name}', (source / 'SKILL.md').read_text())
+                for entry in [source / 'SKILL.md', *source.glob('references/*.md')]:
+                    for link in re.findall(r'\]\(([^)]+\.md(?:#[^)]*)?)\)', entry.read_text()):
+                        if ':' not in link:
+                            self.assertTrue((entry.parent / link.split('#')[0]).is_file(), (entry, link))
 
-    def test_language_trees_mirror_each_other_and_share_code(self):
-        zh, en = installer.LANGUAGES['zh'], installer.LANGUAGES['en']
-        docs = lambda root: sorted(p.relative_to(root) for p in root.rglob('*.md'))
-        self.assertEqual(docs(zh), docs(en))
-        self.assertEqual((en / 'zotero-daily-papers/scripts').resolve(), zh / 'zotero-daily-papers/scripts')
-        for name in ('zdp_config.py', 'zotero_push.py', 'md2zotero.py', 'config.default.json'):
-            self.assertEqual((en / '_zotero_shared' / name).resolve(), zh / '_zotero_shared' / name)
-        self.assertNotRegex((en / 'zotero-daily-papers/SKILL.md').read_text(), '[\u4e00-\u9fff]{4}')
+    def test_language_trees_mirror_each_other_without_symlinks(self):
+        zh, en = installer.sources('zh'), installer.sources('en')
+        for name in installer.SKILLS:
+            docs = lambda root: sorted(p.relative_to(root) for p in root.rglob('*'))
+            self.assertEqual(docs(zh[name]), docs(en[name]))
+            self.assertNotRegex((en[name] / 'SKILL.md').read_text(), '[\u4e00-\u9fff]{4}')
+        self.assertEqual({p.name for p in installer.SKILLS_DIR.iterdir() if p.name != '__pycache__'},
+                         {p.name for p in (*zh.values(), *en.values())})
+        # Symlinks stored in git break checkouts with core.symlinks=false (the Windows default).
+        self.assertEqual([p for p in ROOT.rglob('*') if p.is_symlink() and '.git' not in p.parts], [])
 
     def test_install_keeps_shared_runtime_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -49,13 +53,14 @@ class LayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / 'host-skills'
             installer.install(target, lang='en')
-            for name in (*installer.SKILLS, '_zotero_shared'):
-                self.assertEqual((target / name).resolve(), (ROOT / 'skills-en' / name).resolve())
+            for name, source in installer.sources('en').items():
+                self.assertEqual((target / name).resolve(), source.resolve())
             self.assertTrue(all(a == 'unchanged' for a, _ in installer.install(target, lang='en')))
             self.check_installed_commands(target)
             with self.assertRaises(ValueError):
                 installer.install(target, lang='zh')
-            self.assertEqual({a for a, _ in installer.install(target, lang='zh', update=True)}, {'relink'})
+            actions = {p.name: a for a, p in installer.install(target, lang='zh', update=True)}
+            self.assertEqual(actions, {**dict.fromkeys(installer.SKILLS, 'relink'), '_zotero_shared': 'unchanged'})
             self.assertEqual((target / 'zotero-paper-save').resolve(), ROOT / 'skills/zotero-paper-save')
             with self.assertRaises(ValueError):
                 installer.install(target, lang='fr')
@@ -95,6 +100,73 @@ class LayoutTests(unittest.TestCase):
                                  (moved / 'zotero-daily-papers/skills' / name).resolve())
                 self.assertTrue((moved / 'my-project/.claude/skills' / name).is_dir())
 
+    def test_project_install_inside_this_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / 'zotero-daily-papers'
+            shutil.copytree(ROOT, checkout, ignore=shutil.ignore_patterns('__pycache__', '.git'))
+            run = subprocess.run([sys.executable, 'install.py', '--host', 'claude', '--project', '--lang', 'zh'],
+                                 cwd=checkout, env={**os.environ, 'XDG_CONFIG_HOME': tmp},
+                                 capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            target = checkout / '.claude/skills'
+            for name in (*installer.SKILLS, '_zotero_shared'):
+                self.assertFalse(os.path.isabs(os.readlink(target / name)), name)
+            self.check_installed_commands(target)
+            for bad in (checkout, checkout / 'skills', checkout / 'skills/x', Path(tmp)):
+                run = subprocess.run([sys.executable, 'install.py', '--target', str(bad)], cwd=checkout,
+                                     env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
+                self.assertNotEqual(run.returncode, 0, bad)
+
+    def test_copy_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'host-skills'
+            self.assertEqual({a for a, _ in installer.install(target, lang='zh', copy=True)}, {'copy'})
+            self.assertFalse(any(p.is_symlink() for p in target.rglob('*')))
+            self.check_installed_commands(target)
+            self.assertEqual({a for a, _ in installer.install(target, lang='zh', copy=True)}, {'recopy'})
+            with self.assertRaises(ValueError):
+                installer.install(target, lang='en', copy=True)
+            with self.assertRaises(ValueError):
+                installer.install(target, lang='zh')
+            installer.install(target, lang='en', copy=True, update=True)
+            self.assertNotRegex((target / 'zotero-daily-papers/SKILL.md').read_text(), '[\u4e00-\u9fff]{4}')
+            installer.install(target, lang='en', update=True)
+            self.assertEqual((target / 'zotero-paper-save').resolve(), ROOT / 'skills/zotero-paper-save.en')
+            (target / 'zotero-paper-save').unlink()
+            (target / 'zotero-paper-save').mkdir()  # not ours: never replaced
+            with self.assertRaises(ValueError):
+                installer.install(target, lang='en', copy=True, update=True)
+
+    def test_symlink_preflight_suggests_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'host-skills'
+            with mock.patch.object(installer.os, 'symlink', side_effect=OSError('privilege not held')):
+                with self.assertRaisesRegex(ValueError, '--copy'):
+                    installer.install(target)
+            self.assertFalse(target.exists())
+
+    def test_broken_checkout_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp) / '_zotero_shared'
+            shared.mkdir()
+            (shared / 'config.default.json').write_text('{}')
+            (shared / 'zdp_config.py').write_text('../../skills/_zotero_shared/zdp_config.py')
+            with mock.patch.object(installer, 'SHARED_SOURCE', shared):
+                with self.assertRaisesRegex(ValueError, 'does not look like a Python script'):
+                    installer.install(Path(tmp) / 'host-skills', dry_run=True)
+
+    def test_old_english_links_are_migrated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'host-skills'
+            target.mkdir()
+            for name in (*installer.SKILLS, installer.SHARED):  # layout of the previous version
+                (target / name).symlink_to(ROOT / 'skills-en' / name, target_is_directory=True)
+            actions = {a for a, _ in installer.install(target, lang='en')}
+            self.assertEqual(actions, {'relink'})
+            for name, source in installer.sources('en').items():
+                self.assertEqual((target / name).resolve(), source)
+            self.check_installed_commands(target)
+
     def test_project_requires_host(self):
         run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', '/tmp/x', '--project'],
                              capture_output=True, text=True)
@@ -122,16 +194,16 @@ class LayoutTests(unittest.TestCase):
             self.assertEqual(json.loads(config.read_text())['language'], 'en')
 
     def test_copied_bundle_runs_without_repository_resources(self):
-        for lang, root in installer.LANGUAGES.items():
+        for lang in installer.LANGUAGES:
             with tempfile.TemporaryDirectory() as tmp:
                 target = Path(tmp) / 'copied-skills'
-                shutil.copytree(root, target, ignore=shutil.ignore_patterns('__pycache__'))
-                self.assertFalse(any(p.is_symlink() for p in target.rglob('*')), lang)
+                for name, source in installer.sources(lang).items():
+                    shutil.copytree(source, target / name, ignore=shutil.ignore_patterns('__pycache__'))
                 self.check_installed_commands(target)
 
     def check_installed_commands(self, target):
         shared = target / '_zotero_shared'
-        daily = target / 'zotero-daily-papers/scripts'
+        daily = shared / 'scripts'
         def run(script, *args, stdin=''):
             result = subprocess.run([sys.executable, str(script), *args], cwd=target.parent,
                                     env={**os.environ, 'PYTHONPATH': '', 'XDG_CONFIG_HOME': str(target.parent),
