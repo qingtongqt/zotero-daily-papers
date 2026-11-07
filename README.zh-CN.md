@@ -68,14 +68,14 @@ python3 skills/_zotero_shared/zotero_push.py authorize   # Zotero 会弹出授�
 
 安装器把三个 Skill 和共享目录以符号链接的形式放进 Agent 的技能目录，不复制代码，重复运行是安全的。
 
-用 `--lang` 选择语言：`zh`（中文，默认）或 `en`（英文）。语言决定 Skill 说明、Agent 写的点评/笔记、
+用 `--lang` 选择语言：`en`（英文，默认）或 `zh`（中文）。语言决定 Skill 说明、Agent 写的点评/笔记、
 笔记标题标识（`【精读】` 或 `[Deep Read]`）和默认的「待定」分类名（`待定` 或 `Pending`），并写入个人配置。
 
 **Claude Code**
 
 ```bash
-python3 install.py --target ~/.claude/skills              # 中文
-python3 install.py --target ~/.claude/skills --lang en    # English
+python3 install.py --target ~/.claude/skills --lang zh    # 中文
+python3 install.py --target ~/.claude/skills              # English（默认）
 ```
 
 安装后在当前会话中即可使用。可以直接用自然语言触发，也可以输入 `/zotero-daily-papers` 手动调用。
@@ -83,7 +83,7 @@ python3 install.py --target ~/.claude/skills --lang en    # English
 **Codex**
 
 ```bash
-python3 install.py --target ~/.agents/skills              # 加 --lang en 安装英文版
+python3 install.py --target ~/.agents/skills --lang zh    # 不加 --lang 则安装英文版
 ```
 
 安装后如果 Skill 没有出现，重启 Codex。可以直接用自然语言触发，也可以输入 `$zotero-daily-papers`
@@ -92,7 +92,7 @@ python3 install.py --target ~/.agents/skills              # 加 --lang en 安装
 > 两个都用的话，两条命令各运行一次即可。它们链接到同一个项目目录，更新代码只需改一处。
 > 如需复制安装，把 `skills/`（英文版为 `skills-en/`，需 `cp -rL` 展开其中的链接）下的三个 Skill 和 `_zotero_shared/` 一起复制到宿主技能目录，保持四个目录同级；英文版再运行 `python3 skills/_zotero_shared/zdp_config.py --set-language en`。
 >
-> 切换已安装的语言：`python3 install.py --target <目录> --lang en --update`。
+> 切换已安装的语言：`python3 install.py --target <目录> --lang zh --update`。
 
 如果你的 Agent 不支持 Skill 目录，也可以直接在对话里让它读取 `skills/zotero-daily-papers/SKILL.md`。
 

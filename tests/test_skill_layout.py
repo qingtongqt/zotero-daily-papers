@@ -39,10 +39,10 @@ class LayoutTests(unittest.TestCase):
     def test_install_keeps_shared_runtime_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / 'host-skills'
-            installer.install(target)
+            installer.install(target, lang='zh')
             for name in (*installer.SKILLS, '_zotero_shared'):
                 self.assertEqual((target / name).resolve(), ROOT / 'skills' / name)
-            self.assertTrue(all(a == 'unchanged' for a, _ in installer.install(target)))
+            self.assertTrue(all(a == 'unchanged' for a, _ in installer.install(target, lang='zh')))
             self.check_installed_commands(target)
 
     def test_english_install_and_language_switch(self):
@@ -67,8 +67,8 @@ class LayoutTests(unittest.TestCase):
             config.write_text(json.dumps({'daily_papers': {'top_n': 4}}))
             env = {**os.environ, 'XDG_CONFIG_HOME': tmp}
             env.pop('ZDP_LANGUAGE', None)
-            run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', str(Path(tmp) / 'skills'),
-                                  '--lang', 'en'], env=env, capture_output=True, text=True)
+            run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', str(Path(tmp) / 'skills')],
+                                 env=env, capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertEqual(json.loads(config.read_text()), {'daily_papers': {'top_n': 4}, 'language': 'en'})
             effective = subprocess.run([sys.executable, str(ROOT / 'skills/_zotero_shared/zdp_config.py')],
@@ -131,8 +131,8 @@ class LayoutTests(unittest.TestCase):
             legacy = target / 'zotero-daily-papers'
             legacy.symlink_to(ROOT, target_is_directory=True)
             with self.assertRaises(ValueError):
-                installer.install(target)
-            installer.install(target, update=True)
+                installer.install(target, lang='zh')
+            installer.install(target, lang='zh', update=True)
             self.assertEqual(legacy.resolve(), ROOT / 'skills/zotero-daily-papers')
             self.assertTrue((target / '_zotero_shared/config.default.json').is_file())
 

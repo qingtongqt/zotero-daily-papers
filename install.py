@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Register the three peer skills as links, including their shared runtime.
 
-`--lang zh` (default) links the Chinese skills in `skills/`; `--lang en` links the English
-skills in `skills-en/`. Both trees share the same scripts, and the chosen language is also
+`--lang en` (default) links the English skills in `skills-en/`; `--lang zh` links the Chinese
+skills in `skills/`. Both trees share the same scripts, and the chosen language is also
 saved to the personal config so generated notes and default collection names match.
 """
 import argparse
@@ -20,7 +20,7 @@ def skill_root(lang: str) -> Path:
     return LANGUAGES[lang]
 
 
-def install(target: Path, *, lang: str = 'zh', dry_run: bool = False,
+def install(target: Path, *, lang: str = 'en', dry_run: bool = False,
             update: bool = False) -> list[tuple[str, Path]]:
     root = skill_root(lang)
     target = target.expanduser().resolve()
@@ -73,8 +73,8 @@ def save_language(lang: str) -> Path:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--target', type=Path, required=True, help='Host skill discovery directory')
-    parser.add_argument('--lang', choices=tuple(LANGUAGES), default='zh',
-                        help='Skill and note language: zh (Chinese, default) or en (English)')
+    parser.add_argument('--lang', choices=tuple(LANGUAGES), default='en',
+                        help='Skill and note language: en (English, default) or zh (Chinese)')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--update', action='store_true',
                         help='Switch an existing install to --lang, or migrate a legacy link to this project root')

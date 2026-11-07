@@ -68,13 +68,14 @@ Choose **"Always Allow"** in the dialog so later runs do not ask again.
 
 The installer symlinks the three skills and the shared directory into the agent's skill directory without copying code; rerunning is safe.
 
-Choose the language with `--lang`: `zh` (Chinese, default) or `en` (English). The language decides the skill instructions, the reviews and notes the agent writes,
+Choose the language with `--lang`: `en` (English, default) or `zh` (Chinese). The language decides the skill instructions, the reviews and notes the agent writes,
 the note title markers (`[Deep Read]` or `【精读】`) and the default pending collection name (`Pending` or `待定`), and is saved to your personal config.
 
 **Claude Code**
 
 ```bash
-python3 install.py --target ~/.claude/skills --lang en
+python3 install.py --target ~/.claude/skills              # English
+python3 install.py --target ~/.claude/skills --lang zh    # 中文
 ```
 
 The skills are available in the current session. Trigger them in natural language, or call `/zotero-daily-papers` manually.
@@ -82,7 +83,7 @@ The skills are available in the current session. Trigger them in natural languag
 **Codex**
 
 ```bash
-python3 install.py --target ~/.agents/skills --lang en
+python3 install.py --target ~/.agents/skills              # add --lang zh for Chinese
 ```
 
 Restart Codex if the skills do not show up. Trigger them in natural language, call `$zotero-daily-papers`,
