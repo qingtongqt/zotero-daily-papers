@@ -298,6 +298,17 @@ class LanguageConfigTests(unittest.TestCase):
             self.assertNotEqual(run.returncode, 0)
             self.assertIn('language must be one of', run.stderr)
 
+    def test_init_without_lang_uses_effective_language(self):
+        for env_lang, expected in (('', 'en'), ('zh', 'zh')):
+            with tempfile.TemporaryDirectory() as tmp:
+                env = {**os.environ, 'XDG_CONFIG_HOME': tmp, 'ZDP_LANGUAGE': env_lang}
+                env.pop('ZDP_CONFIG', None)
+                run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py'), '--init'],
+                                     env=env, capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                path = Path(tmp)/'zotero-daily-papers'/'config.json'
+                self.assertEqual(json.loads(path.read_text())['language'], expected)
+
     def test_set_language_preserves_other_options(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)/'zotero-daily-papers'/'config.json'

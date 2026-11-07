@@ -262,10 +262,12 @@ def main() -> None:
         return
     if args.init:
         path = personal_config_path()
+        # Resolve the template before creating the file: loading the config would read it half-written.
+        template = personal_template(args.lang or load_config()["language"])
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with path.open("x", encoding="utf-8") as stream:
-                json.dump(personal_template(args.lang or load_config()["language"]), stream, ensure_ascii=False, indent=2)
+                json.dump(template, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
             os.chmod(path, 0o600)
             print(f"Created personal configuration: {path}")
