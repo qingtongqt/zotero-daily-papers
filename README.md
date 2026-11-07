@@ -1,5 +1,7 @@
 # zotero-daily-papers
 
+中文 | [English](README.en.md)
+
 让 AI Agent（如 Claude Code、Codex）每天帮你从 arXiv 挑选论文、精读，并把结果整理进本机 Zotero：
 每日推荐总览、论文条目与 PDF、点评笔记、必读论文的精读笔记，全部保存在 Zotero 里。
 
@@ -66,10 +68,14 @@ python3 skills/_zotero_shared/zotero_push.py authorize   # Zotero 会弹出授�
 
 安装器把三个 Skill 和共享目录以符号链接的形式放进 Agent 的技能目录，不复制代码，重复运行是安全的。
 
+用 `--lang` 选择语言：`zh`（中文，默认）或 `en`（英文）。语言决定 Skill 说明、Agent 写的点评/笔记、
+笔记标题标识（`【精读】` 或 `[Deep Read]`）和默认的「待定」分类名（`待定` 或 `Pending`），并写入个人配置。
+
 **Claude Code**
 
 ```bash
-python3 install.py --target ~/.claude/skills
+python3 install.py --target ~/.claude/skills              # 中文
+python3 install.py --target ~/.claude/skills --lang en    # English
 ```
 
 安装后在当前会话中即可使用。可以直接用自然语言触发，也可以输入 `/zotero-daily-papers` 手动调用。
@@ -77,14 +83,16 @@ python3 install.py --target ~/.claude/skills
 **Codex**
 
 ```bash
-python3 install.py --target ~/.agents/skills
+python3 install.py --target ~/.agents/skills              # 加 --lang en 安装英文版
 ```
 
 安装后如果 Skill 没有出现，重启 Codex。可以直接用自然语言触发，也可以输入 `$zotero-daily-papers`
 或通过 `/skills` 选择调用。较旧版本的 Codex 使用 `~/.codex/skills` 目录。
 
 > 两个都用的话，两条命令各运行一次即可。它们链接到同一个项目目录，更新代码只需改一处。
-> 如需复制安装，把 `skills/` 下的三个 Skill 和 `_zotero_shared/` 一起复制到宿主技能目录，保持四个目录同级。
+> 如需复制安装，把 `skills/`（英文版为 `skills-en/`，需 `cp -rL` 展开其中的链接）下的三个 Skill 和 `_zotero_shared/` 一起复制到宿主技能目录，保持四个目录同级；英文版再运行 `python3 skills/_zotero_shared/zdp_config.py --set-language en`。
+>
+> 切换已安装的语言：`python3 install.py --target <目录> --lang en --update`。
 
 如果你的 Agent 不支持 Skill 目录，也可以直接在对话里让它读取 `skills/zotero-daily-papers/SKILL.md`。
 
@@ -200,10 +208,14 @@ python3 skills/_zotero_shared/zdp_config.py --set-classification existing
 
 ### 常用配置项
 
+| 键（顶层） | 默认值 | 说明 |
+|---|---|---|
+| `language` | `zh` | `zh` 或 `en`，由 `install.py --lang` 设置，也可用 `zdp_config.py --set-language` 修改 |
+
 | 键（`zotero` 节） | 默认值 | 说明 |
 |---|---|---|
 | `root_collection` | `Daily Papers` | 每日推荐总览所在的顶层分类 |
-| `pending_collection` | `待定` | 未分类论文的去处 |
+| `pending_collection` | `待定`（英文为 `Pending`） | 未分类论文的去处 |
 | `classification_mode` | `pending` | `pending` 或 `existing` |
 | `attach_pdf` | `upload` | `upload` 下载 PDF；`link` 仅添加链接；`none` 不添加 |
 | `attanger_wait_seconds` | `10` | 上传 PDF 后等待 Attanger 处理的秒数，`0` 关闭检查 |
@@ -262,6 +274,7 @@ zotero-daily-papers/
 │   ├── zotero-paper-save/             # 单篇入库与分类
 │   ├── zotero-paper-reader/           # 精读流程和笔记模板
 │   └── _zotero_shared/                # Zotero 脚本、默认配置和配置说明
+├── skills-en/                         # 英文版 Skill 说明（脚本链接到 skills/，共用一份代码）
 ├── tests/
 └── install.py                         # Skill 安装器
 ```

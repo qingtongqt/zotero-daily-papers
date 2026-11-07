@@ -39,13 +39,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from md2zotero import to_note_html  # noqa: E402
 from zdp_config import (  # noqa: E402
-    classification_mode, config_home, directions, load_history, save_history, temp_file_path, zotero_config,
+    classification_mode, config_home, directions, language, load_history, save_history, temp_file_path,
+    zotero_config,
 )
 
 API = "https://api.zotero.org"
 UA = "zotero-daily-papers/1.0"
-NOTE_LABELS = {"full-note": "精读", "quick": "速读", "review": "每日锐评", "digest": "每日推荐"}
-TIER_LABEL = {"must": "🔥必读", "worth": "👀值得看", "skip": "💤可跳过", "read": "📖精读"}
+# Note titles start with a localized kind marker. Both languages are always recognized so a
+# library keeps deduplicating after the language is switched; new titles use the configured one.
+NOTE_LABELS = {
+    "zh": {"full-note": "精读", "quick": "速读", "review": "每日锐评", "digest": "每日推荐"},
+    "en": {"full-note": "Deep Read", "quick": "Quick Read", "review": "Daily Review", "digest": "Daily Digest"},
+}
+NOTE_MARKERS = {"zh": ("【", "】", "笔记-"), "en": ("[", "]", "Note-")}
+NOTE_KINDS = tuple(NOTE_LABELS["zh"])
+TIERS = ("must", "worth", "skip")
+IMAGE_SOURCE_LABEL = {"zh": "原图", "en": "source"}
+
+
+def note_prefix(kind: str, lang: str) -> str:
+    left, right, custom = NOTE_MARKERS[lang]
+    return f"{left}{NOTE_LABELS[lang].get(kind, custom + kind)}{right}"
+
+
+def parse_note_prefix(title: str) -> tuple[str | None, str]:
+    """Return (kind, rest of title) for a title that starts with any known marker."""
+    for lang, labels in NOTE_LABELS.items():
+        for kind in labels:
+            prefix = note_prefix(kind, lang)
+            if title.startswith(prefix):
+                return kind, title[len(prefix):]
+        left, right, custom = NOTE_MARKERS[lang]
+        match = re.match(re.escape(left + custom) + r"([a-z][a-z0-9-]*)" + re.escape(right), title)
+        if match:
+            return match.group(1), title[match.end():]
+    return None, title
 ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})(v\d+)?")
 
 
@@ -733,7 +761,8 @@ def finalize_images(zot: Zotero, html: str, note_key: str | None, limit: int) ->
             ext = ctype.split("/")[-1].replace("jpeg", "jpg").replace("svg+xml", "svg")
             zot.upload_file(key, data, f"image.{ext}", ctype)
             embedded += 1
-            caption = f'<br><em>{alt}</em> (<a href="{m.group(1)}">原图</a>)' if alt else ""
+            caption = (f'<br><em>{alt}</em> (<a href="{m.group(1)}">{IMAGE_SOURCE_LABEL[language()]}</a>)'
+                       if alt else "")
             return f'<img data-attachment-key="{key}" alt="{alt}">{caption}'
         except (ZoteroError, URLError, OSError) as err:
             log(f"image embed failed ({url}): {err}; using a link")
@@ -747,19 +776,15 @@ def note_identity(data: dict) -> tuple[list[str], str | None]:
     heading = re.search(r"<h1[^>]*>(.*?)</h1>", data.get("note", ""), re.S | re.I)
     title = html_lib.unescape(re.sub(r"<[^>]+>", "", heading.group(1))).strip() if heading else ""
     kinds, day = [], None
-    for kind, label in NOTE_LABELS.items():
-        if title.startswith(f"【{label}】"):
-            kinds = [kind]
-            if kind in ("review", "digest"):
-                match = re.match(r"(\d{4}-\d{2}-\d{2})(?:\s|$)", title[len(label)+2:].strip())
-                day = match.group(1) if match else None
-            break
-    custom = re.match(r"【笔记-([a-z][a-z0-9-]*)】", title)
-    if custom:
-        kinds = [custom.group(1)]
+    kind, rest = parse_note_prefix(title)
+    if kind:
+        kinds = [kind]
+        if kind in ("review", "digest"):
+            match = re.match(r"(\d{4}-\d{2}-\d{2})(?:\s|$)", rest.strip())
+            day = match.group(1) if match else None
     legacy = [t["tag"] for t in data.get("tags", [])]
     if not kinds:
-        kinds = [t[3:] for t in legacy if t.startswith("dp/") and t[3:] in NOTE_LABELS]
+        kinds = [t[3:] for t in legacy if t.startswith("dp/") and t[3:] in NOTE_KINDS]
     if not day:
         day = next((t[3:] for t in legacy if re.fullmatch(r"dp/\d{4}-\d{2}-\d{2}", t)), None)
     return kinds, day
@@ -775,12 +800,14 @@ def identify_note(markdown: str, kind: str | None, day: str | None) -> str:
         return markdown
     if not re.fullmatch(r"[a-z][a-z0-9-]*", kind):
         raise ZoteroError("Note kind must use lowercase letters, digits and hyphens")
-    label = NOTE_LABELS.get(kind, f"笔记-{kind}")
-    prefix = f"【{label}】" + (f"{day} " if day else "")
+    lang = language()
+    prefix = note_prefix(kind, lang) + ("" if lang == "zh" else " ") + (f"{day} " if day else "")
     lines = markdown.splitlines()
     if lines and re.match(r"^#\s+", lines[0]):
         title = re.sub(r"^#\s+", "", lines[0])
-        title = re.sub(r"^【" + re.escape(label) + r"】\s*", "", title)
+        existing, rest = parse_note_prefix(title)
+        if existing == kind:
+            title = rest.lstrip()
         if day:
             title = re.sub(r"^" + re.escape(day) + r"\s*", "", title)
         lines[0] = "# " + prefix + title
@@ -935,7 +962,7 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
         p["arxiv_id"] = norm_arxiv(p.get("arxiv_id", ""))
         if not p["arxiv_id"]:
             die(f"payload paper without a valid arxiv_id: {p}")
-        if p.get("tier") not in TIER_LABEL:
+        if p.get("tier") not in TIERS:
             die(f"tier must be must/worth/skip for {p['arxiv_id']}")
         if p["tier"] in write_tiers and not (p.get("review_markdown") or "").strip():
             die(f"review_markdown is empty for {p['arxiv_id']}")
@@ -954,7 +981,7 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
             paper["classification_reason"] = "Configured to save in pending collection"
         if not isinstance(selected, list) or any(
                 not isinstance(k, str) or (k not in known and zot.dry_run is not True) for k in selected):
-            raise ZoteroError("Read collections and supply collection_keys for every saved paper; [] means 待定")
+            raise ZoteroError("Read collections and supply collection_keys for every saved paper; [] means the pending collection")
     cache = load_cache(zot)
     cache["identity"] = zot.cache_identity
     result = {"date": day, "library": zot.base.replace(API, ""), "classification_mode": mode,
@@ -1208,7 +1235,7 @@ def main() -> None:
     p = sub.add_parser("upsert-paper")
     p.add_argument("--arxiv", required=True)
     p.add_argument("--directions", nargs="*", help="optional research tags only; does not select collections")
-    p.add_argument("--collections", nargs="*", help="existing collection keys chosen by Agent; empty means 待定")
+    p.add_argument("--collections", nargs="*", help="existing collection keys chosen by Agent; empty means the pending collection")
     p.add_argument("--classification-reason", default="", help="reason for the selected collections")
     p.add_argument("--tags", nargs="*")
     for name in ("add-note", "notes", "attachments"):

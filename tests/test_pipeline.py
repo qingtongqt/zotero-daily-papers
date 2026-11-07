@@ -246,6 +246,71 @@ class PipelineTests(unittest.TestCase):
                 self.assertFalse(zp.note_matches(data, kind, '2026-11-05'))
 
 
+    def test_english_note_titles_and_cross_language_recognition(self):
+        from unittest import mock
+        with mock.patch.object(zp, 'language', return_value='en'):
+            review = zp.identify_note('# EGDR: A paper', 'review', '2026-11-04')
+            self.assertEqual(review.splitlines()[0], '# [Daily Review] 2026-11-04 EGDR: A paper')
+            self.assertEqual(zp.identify_note(review, 'review', '2026-11-04'), review)
+            self.assertEqual(zp.identify_note('# X', 'full-note', None), '# [Deep Read] X')
+            self.assertEqual(zp.identify_note('# X', 'my-kind', None), '# [Note-my-kind] X')
+            # A Chinese note is recognized and its title rewritten in English.
+            self.assertEqual(zp.identify_note('# 【精读】X', 'full-note', None), '# [Deep Read] X')
+        for title, kind, day in (('[Daily Digest] 2026-11-04 🔪', 'digest', '2026-11-04'),
+                                 ('【每日推荐】2026-11-04 🔪', 'digest', '2026-11-04'),
+                                 ('[Quick Read] X', 'quick', None), ('【笔记-my-kind】X', 'my-kind', None)):
+            data = {'note': zp.to_note_html(f'# {title}'), 'tags': []}
+            self.assertEqual(zp.note_identity(data), ([kind], day))
+        self.assertEqual(zp.note_identity({'note': zp.to_note_html('# [Draft] X'), 'tags': []}), ([], None))
+
+
+class LanguageConfigTests(unittest.TestCase):
+    def effective(self, personal=None, **env):
+        with tempfile.TemporaryDirectory() as tmp:
+            if personal is not None:
+                (Path(tmp)/'zotero-daily-papers').mkdir()
+                (Path(tmp)/'zotero-daily-papers'/'config.json').write_text(json.dumps(personal))
+            full_env = {**os.environ, 'XDG_CONFIG_HOME': tmp, **env}
+            full_env.pop('ZDP_CONFIG', None)
+            if 'ZDP_LANGUAGE' not in env:
+                full_env.pop('ZDP_LANGUAGE', None)
+            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py')],
+                                 env=full_env, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            return json.loads(run.stdout)
+
+    def test_localized_defaults_and_overrides(self):
+        zh = self.effective()
+        self.assertEqual((zh['language'], zh['zotero']['pending_collection']), ('zh', '待定'))
+        self.assertEqual(zh['daily_papers']['directions'][0]['name'], '多模态大模型幻觉')
+        self.assertNotIn('locales', zh)
+        self.assertNotIn('name_en', zh['daily_papers']['directions'][0])
+        en = self.effective({'language': 'en'})
+        self.assertEqual(en['zotero']['pending_collection'], 'Pending')
+        self.assertEqual(en['daily_papers']['directions'][0]['name'], 'MLLM Hallucination')
+        explicit = self.effective({'language': 'en', 'zotero': {'pending_collection': '待定'}})
+        self.assertEqual(explicit['zotero']['pending_collection'], '待定')
+        self.assertEqual(self.effective({'language': 'en'}, ZDP_LANGUAGE='zh')['language'], 'zh')
+
+    def test_invalid_language_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py')],
+                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp, 'ZDP_LANGUAGE': 'fr'},
+                                 capture_output=True, text=True)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('language must be one of', run.stderr)
+
+    def test_set_language_preserves_other_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'zotero-daily-papers'/'config.json'
+            path.parent.mkdir()
+            path.write_text(json.dumps({'zotero': {'pending_collection': 'Inbox'}}))
+            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py'), '--set-language', 'en'],
+                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(json.loads(path.read_text()), {'zotero': {'pending_collection': 'Inbox'}, 'language': 'en'})
+
+
 class ClassificationSettingTests(unittest.TestCase):
     def test_default_and_validation(self):
         self.assertEqual(classification_mode({}), 'pending')

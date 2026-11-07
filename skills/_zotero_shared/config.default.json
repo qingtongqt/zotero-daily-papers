@@ -1,4 +1,5 @@
 {
+  "language": "zh",
   "zotero": {
     "backend": "local",
     "local_url": "http://127.0.0.1:23119",
@@ -21,6 +22,7 @@
       {
         "id": "mllm-hallucination",
         "name": "多模态大模型幻觉",
+        "name_en": "MLLM Hallucination",
         "keywords": [
           ["hallucination", "hallucinations", "hallucinate", "object hallucination", "visual hallucination", "multimodal hallucination"],
           "faithfulness",
@@ -33,6 +35,7 @@
       {
         "id": "post-training",
         "name": "大模型后训练",
+        "name_en": "LLM Post-training",
         "keywords": [
           ["post-training", "post training"],
           ["rlhf", "reinforcement learning from human feedback"],
@@ -54,6 +57,7 @@
       {
         "id": "architecture",
         "name": "大模型架构",
+        "name_en": "LLM Architecture",
         "keywords": [
           "transformer architecture",
           ["mixture of experts", "mixture-of-experts", "moe", "expert routing"],
@@ -119,6 +123,13 @@
     "ranking": {
       "backend": "agent",
       "min_score": 2.0
+    }
+  },
+  "locales": {
+    "en": {
+      "zotero": {
+        "pending_collection": "Pending"
+      }
     }
   }
 }
