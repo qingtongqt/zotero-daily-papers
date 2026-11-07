@@ -53,6 +53,20 @@ def read_marker(path: Path) -> dict | None:
         return None
 
 
+def _backup(destination: Path) -> Path:
+    return destination.with_name(destination.name + '.zdp-old')
+
+
+def recover(destination: Path) -> None:
+    """Finish or undo an interrupted update, so the previous copy (and its config) is never lost."""
+    backup = _backup(destination)
+    if backup.is_dir() and read_marker(backup) is not None:
+        if destination.exists() or destination.is_symlink():
+            shutil.rmtree(backup)  # The update completed; only the cleanup was missed.
+        else:
+            backup.rename(destination)  # The update stopped halfway; restore the previous copy.
+
+
 def install(target: Path, *, lang: str = 'en', dry_run: bool = False,
             update: bool = False) -> list[tuple[str, Path]]:
     """Copy the skills into `target`; returns (action, path) for each entry."""
@@ -62,6 +76,9 @@ def install(target: Path, *, lang: str = 'en', dry_run: bool = False,
         raise ValueError('Target must not be inside the skill sources (skills/)')
     if target.exists() and not target.is_dir():
         raise ValueError(f'Target is not a directory: {target}')
+    if not dry_run:
+        for name in planned:
+            recover(target / name)
     actions = []
     # Check every entry before changing any of them.
     for name in planned:
@@ -87,9 +104,12 @@ def install(target: Path, *, lang: str = 'en', dry_run: bool = False,
         (staging / MARKER).write_text(json.dumps({'lang': lang}) + '\n', encoding='utf-8')
         if (destination / CONFIG).is_file():
             shutil.copy2(destination / CONFIG, staging / CONFIG)  # Keep this install's settings.
+        # Keep the previous copy until the new one is in place; recover() handles an interruption.
         if destination.exists():
-            shutil.rmtree(destination)  # Only a verified copy made by this installer.
+            destination.rename(_backup(destination))
         staging.rename(destination)
+        if _backup(destination).exists():
+            shutil.rmtree(_backup(destination))
     return actions
 
 

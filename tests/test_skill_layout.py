@@ -75,6 +75,27 @@ class InstallTests(unittest.TestCase):
                 self.assertFalse(any(p.name.endswith('.zdp-new') for p in target.iterdir()))
                 self.check_installed_commands(target)
 
+    def test_interrupted_update_keeps_the_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'host-skills'
+            installer.install(target, lang='zh')
+            config = target / '_zotero_shared/config.json'
+            config.write_text('{"daily_papers": {"top_n": 3}}')
+            real_rename = Path.rename
+
+            def failing_rename(path, destination):
+                if path.name == '_zotero_shared.zdp-new':
+                    raise OSError('interrupted')
+                return real_rename(path, destination)
+
+            from unittest import mock
+            with mock.patch.object(Path, 'rename', failing_rename):
+                with self.assertRaises(OSError):
+                    installer.install(target, lang='zh')
+            installer.install(target, lang='zh')  # The rerun recovers the previous copy first.
+            self.assertEqual(json.loads(read(config)), {'daily_papers': {'top_n': 3}})
+            self.assertEqual(sorted(p.name for p in target.iterdir()), sorted(installer.sources('zh')))
+
     def test_language_switch_requires_update(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / 'host-skills'
