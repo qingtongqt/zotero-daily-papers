@@ -49,7 +49,7 @@ git clone https://github.com/qingtongqt/zotero-daily-papers.git
 cd zotero-daily-papers
 ```
 
-项目目录需要长期保留：Skill 安装后通过链接指向这里，共享脚本也从这里运行。
+安装器会把 Skill 复制到 Agent 的技能目录，安装后运行时不依赖本目录；保留它是为了 `git pull` 更新后重新安装。
 
 ### 2. 开启 Zotero 本机 API
 
@@ -66,8 +66,8 @@ python3 skills/_zotero_shared/zotero_push.py authorize   # Zotero 会弹出授�
 
 ### 3. 安装 Skill
 
-安装器把三个 Skill 和共享目录以符号链接的形式放进 Agent 的技能目录，不复制代码，重复运行是安全的。
-安装前会先检查能否创建链接；不能创建时（见 [Windows](#windows)）改用 `--copy`。
+安装器把三个 Skill 和共享目录**复制**到 Agent 的技能目录，不使用符号链接，Windows 也无需开发者模式或管理员权限。
+重复运行是安全的：只会覆盖之前由安装器复制的目录。更新本仓库（`git pull`）后，重新运行同一条安装命令即可更新已安装的 Skill。
 
 用 `--lang` 选择语言：`en`（英文，默认）或 `zh`（中文）。语言决定 Skill 说明、Agent 写的点评/笔记、
 笔记标题标识（`【精读】` 或 `[Deep Read]`）和默认的「待定」分类名（`待定` 或 `Pending`），并写入个人配置。
@@ -100,31 +100,33 @@ python3 install.py --host codex  --project ~/work/my-project --lang zh    # -> m
 python3 install.py --host claude --project --lang zh                      # -> 本仓库的 .claude/skills（在仓库根目录运行）
 ```
 
-项目级安装使用相对路径链接，项目和本目录一起移动后仍然有效（例如本仓库放在项目目录里，或作为 git submodule）。
 语言和个人配置仍由所有安装共用。要装到其他技能目录，用 `--target <目录>`。
 
-> 两个都用的话，两条命令各运行一次即可。它们链接到同一个项目目录，更新代码只需改一处。
+> 两个都用的话，两条命令各运行一次即可；更新本仓库后，对每个安装位置重新运行对应命令。
 >
-> 如需复制安装，在上面任一命令后加 `--copy`；更新本仓库后重新运行同一条命令。
+> 切换已安装的语言：在原安装命令后加 `--update`，例如 `python3 install.py --host claude --lang zh --update`。
+>
 > 也可以手动复制：把 `skills/_zotero_shared/` 和三个 Skill 复制到宿主技能目录，保持四个目录同级；中文复制 `skills/<名称>/`，英文复制 `skills/<名称>.en/` 并去掉 `.en` 后缀，
 > 然后**无论中英文**都要显式设置语言：`python3 skills/_zotero_shared/zdp_config.py --set-language zh`（英文用 `en`；不设置时默认为英文）。
->
-> 切换已安装的语言：`python3 install.py --target <目录> --lang zh --update`。
->
-> 从旧版本升级：配置默认语言现为英文，中文用户请运行 `python3 install.py --target <目录> --lang zh` 或 `python3 skills/_zotero_shared/zdp_config.py --set-language zh`，否则新论文会进入 `Pending` 分类、笔记标题变为英文。
+> 手动复制的目录没有安装标记，之后不能用安装器更新（见下方升级说明）。
+
+**从旧版本升级**
+
+- **旧版安装器（符号链接）安装的**：直接重新运行安装命令即可，链接会被替换成复制的文件。中文用户记得加 `--lang zh`。
+- **手动复制安装的**：这些目录没有安装标记，安装器不会覆盖它们，会报 `Refusing to replace existing path`。
+  先把技能目录（如 `~/.agents/skills`）里的 `zotero-daily-papers`、`zotero-paper-save`、`zotero-paper-reader`、`_zotero_shared` 四个目录备份并移走，再重新安装。
+- **配置默认语言现为英文**：中文用户用 `--lang zh` 安装（会写入个人配置），或运行 `python3 skills/_zotero_shared/zdp_config.py --set-language zh`，否则新论文会进入 `Pending` 分类、笔记标题变为英文。
 
 如果你的 Agent 不支持 Skill 目录，可以用 `--target <任意目录>` 安装，再在对话里让它读取 `<目录>/zotero-daily-papers/SKILL.md`。
 
 #### Windows
 
-Windows 上创建符号链接需要开启开发者模式（设置 → 系统 → 开发者选项）或使用管理员终端。
-两者都没有时，安装器会在改动任何文件前停止，并提示改用 `--copy`：
+安装器只复制文件，不需要开发者模式或管理员权限；仓库本身也不包含符号链接，`core.symlinks` 为任何值都能正常检出。
+命令中的 `python3` 在 Windows 上通常写作 `python` 或 `py`：
 
 ```powershell
-python install.py --host claude --lang zh --copy    # 复制安装；git pull 后重新运行
+python install.py --host claude --lang zh
 ```
-
-仓库本身不包含符号链接，`core.symlinks` 为任何值都能正常检出。
 
 ### 4. 设置研究方向
 

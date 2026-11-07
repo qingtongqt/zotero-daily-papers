@@ -49,7 +49,7 @@ git clone https://github.com/qingtongqt/zotero-daily-papers.git
 cd zotero-daily-papers
 ```
 
-Keep the project directory: installed skills link here, and the shared scripts run from here.
+The installer copies the skills into the agent's skill directory, so installed skills do not depend on this directory at run time; keep it to update with `git pull` and reinstall.
 
 ### 2. Enable the Zotero local API
 
@@ -66,8 +66,8 @@ Choose **"Always Allow"** in the dialog so later runs do not ask again.
 
 ### 3. Install the skills
 
-The installer symlinks the three skills and the shared directory into the agent's skill directory without copying code; rerunning is safe.
-It checks that links can be created before changing anything; where they cannot (see [Windows](#windows)), use `--copy`.
+The installer **copies** the three skills and the shared directory into the agent's skill directory. It uses no symbolic links, so Windows needs no Developer Mode or administrator rights.
+Rerunning is safe: it only replaces directories the installer copied before. After updating this repository (`git pull`), rerun the same install command to update the installed skills.
 
 Choose the language with `--lang`: `en` (English, default) or `zh` (Chinese). The language decides the skill instructions, the reviews and notes the agent writes,
 the note title markers (`[Deep Read]` or `【精读】`) and the default pending collection name (`Pending` or `待定`), and is saved to your personal config.
@@ -100,32 +100,33 @@ python3 install.py --host codex  --project ~/work/my-project    # -> my-project/
 python3 install.py --host claude --project                      # -> this repository's .claude/skills (run from its root)
 ```
 
-Project installs use relative links, so they keep working when the project and this directory are moved together
-(for example when this repository sits inside the project, or as a git submodule).
 The language and personal config are still shared by all installs. For any other skill directory, use `--target <dir>`.
 
-> If you use both, run both commands. They link to the same project directory, so updating the code happens in one place.
+> If you use both, run both commands; after updating this repository, rerun the command for each install location.
 >
-> To install by copying, add `--copy` to any command above; rerun it after updating this repository.
+> To switch an existing install to another language, add `--update` to its install command, e.g. `python3 install.py --host claude --lang zh --update`.
+>
 > To copy by hand instead, copy `skills/_zotero_shared/` and the three skills into the host skill directory, keeping the four directories side by side; for English copy `skills/<name>.en/` and drop the `.en` suffix (for Chinese copy `skills/<name>/`),
 > then set the language explicitly for **either** language: `python3 skills/_zotero_shared/zdp_config.py --set-language en` (or `zh`; without it the default is English).
->
-> To switch an existing install to another language: `python3 install.py --target <dir> --lang zh --update`.
->
-> Upgrading from an older version: the default language is now English. Chinese users should run `python3 install.py --target <dir> --lang zh` (or `zdp_config.py --set-language zh`); otherwise new papers go to `Pending` and new note titles are in English.
+> Manually copied directories carry no install marker, so the installer cannot update them later (see the upgrade notes below).
+
+**Upgrading from an older version**
+
+- **Installed by the old (symlink) installer**: just rerun the install command; the links are replaced by copies. Chinese users should keep `--lang zh`.
+- **Installed by copying manually**: those directories carry no install marker, so the installer will not replace them and reports `Refusing to replace existing path`.
+  Back up and move away the four directories `zotero-daily-papers`, `zotero-paper-save`, `zotero-paper-reader` and `_zotero_shared` from the skill directory (e.g. `~/.agents/skills`), then install again.
+- **The default language is now English**: Chinese users should install with `--lang zh` (it is saved to the personal config) or run `python3 skills/_zotero_shared/zdp_config.py --set-language zh`; otherwise new papers go to `Pending` and new note titles are in English.
 
 If your agent does not support skill directories, install with `--target <any dir>` and ask it in the chat to read `<dir>/zotero-daily-papers/SKILL.md`.
 
 #### Windows
 
-Creating symbolic links on Windows needs Developer Mode (Settings → System → For developers) or an administrator terminal.
-Without either, the installer stops before changing anything and asks you to use `--copy`:
+The installer only copies files, so it needs no Developer Mode or administrator rights; the repository contains no symbolic links either, so any `core.symlinks` setting works.
+On Windows, `python3` in the commands is usually `python` or `py`:
 
 ```powershell
-python install.py --host claude --copy               # copies the skills; rerun after git pull
+python install.py --host claude
 ```
-
-The repository itself contains no symbolic links, so it works with any `core.symlinks` setting.
 
 ### 4. Set your research directions
 

@@ -16,6 +16,23 @@ installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 
 
+def can_symlink() -> bool:
+    """Windows without Developer Mode or admin rights cannot create symbolic links."""
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            os.symlink(tmp, Path(tmp) / 'probe', target_is_directory=True)
+            return True
+        except OSError:
+            return False
+
+
+needs_symlinks = unittest.skipUnless(can_symlink(), 'symbolic links are not available on this system')
+
+
+def read(path: Path) -> str:
+    return path.read_text(encoding='utf-8')
+
+
 class LayoutTests(unittest.TestCase):
     def test_three_peer_entries_and_resolvable_references(self):
         self.assertFalse((ROOT / 'SKILL.md').exists())
@@ -23,9 +40,9 @@ class LayoutTests(unittest.TestCase):
             for name, source in installer.sources(lang).items():
                 if name == installer.SHARED:
                     continue
-                self.assertIn(f'name: {name}', (source / 'SKILL.md').read_text())
+                self.assertIn(f'name: {name}', read(source / 'SKILL.md'))
                 for entry in [source / 'SKILL.md', *source.glob('references/*.md')]:
-                    for link in re.findall(r'\]\(([^)]+\.md(?:#[^)]*)?)\)', entry.read_text()):
+                    for link in re.findall(r'\]\(([^)]+\.md(?:#[^)]*)?)\)', read(entry)):
                         if ':' not in link:
                             self.assertTrue((entry.parent / link.split('#')[0]).is_file(), (entry, link))
 
@@ -34,36 +51,98 @@ class LayoutTests(unittest.TestCase):
         for name in installer.SKILLS:
             docs = lambda root: sorted(p.relative_to(root) for p in root.rglob('*'))
             self.assertEqual(docs(zh[name]), docs(en[name]))
-            self.assertNotRegex((en[name] / 'SKILL.md').read_text(), '[\u4e00-\u9fff]{4}')
+            self.assertNotRegex(read(en[name] / 'SKILL.md'), '[一-鿿]{4}')
         self.assertEqual({p.name for p in installer.SKILLS_DIR.iterdir() if p.name != '__pycache__'},
                          {p.name for p in (*zh.values(), *en.values())})
         # Symlinks stored in git break checkouts with core.symlinks=false (the Windows default).
         self.assertEqual([p for p in ROOT.rglob('*') if p.is_symlink() and '.git' not in p.parts], [])
 
-    def test_install_keeps_shared_runtime_and_is_idempotent(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / 'host-skills'
-            installer.install(target, lang='zh')
-            for name in (*installer.SKILLS, '_zotero_shared'):
-                self.assertEqual((target / name).resolve(), ROOT / 'skills' / name)
-            self.assertTrue(all(a == 'unchanged' for a, _ in installer.install(target, lang='zh')))
-            self.check_installed_commands(target)
 
-    def test_english_install_and_language_switch(self):
+class InstallTests(unittest.TestCase):
+    def assert_copied(self, target: Path, lang: str):
+        for name, source in installer.sources(lang).items():
+            destination = target / name
+            self.assertFalse(destination.is_symlink(), name)
+            self.assertEqual(installer.read_marker(destination), {'lang': lang})
+            self.assertEqual(read(destination / installer._required(name)), read(source / installer._required(name)))
+        self.assertFalse(any(p.is_symlink() for p in target.rglob('*')))
+
+    def test_copy_install_is_idempotent_and_runs_without_the_checkout(self):
+        for lang in installer.LANGUAGES:
+            with tempfile.TemporaryDirectory() as tmp:
+                target = Path(tmp) / 'host-skills'
+                self.assertEqual({a for a, _ in installer.install(target, lang=lang)}, {'copy'})
+                self.assert_copied(target, lang)
+                (target / '_zotero_shared/stale.txt').write_text('old')
+                self.assertEqual({a for a, _ in installer.install(target, lang=lang)}, {'update'})
+                self.assertFalse((target / '_zotero_shared/stale.txt').exists())
+                self.assertFalse(any(p.name.endswith('.zdp-new') for p in target.iterdir()))
+                self.check_installed_commands(target)
+
+    def test_language_switch_requires_update(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / 'host-skills'
             installer.install(target, lang='en')
-            for name, source in installer.sources('en').items():
-                self.assertEqual((target / name).resolve(), source.resolve())
-            self.assertTrue(all(a == 'unchanged' for a, _ in installer.install(target, lang='en')))
-            self.check_installed_commands(target)
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, '--update'):
                 installer.install(target, lang='zh')
-            actions = {p.name: a for a, p in installer.install(target, lang='zh', update=True)}
-            self.assertEqual(actions, {**dict.fromkeys(installer.SKILLS, 'relink'), '_zotero_shared': 'unchanged'})
-            self.assertEqual((target / 'zotero-paper-save').resolve(), ROOT / 'skills/zotero-paper-save')
+            self.assert_copied(target, 'en')
+            installer.install(target, lang='zh', update=True)
+            self.assert_copied(target, 'zh')
             with self.assertRaises(ValueError):
                 installer.install(target, lang='fr')
+
+    def test_manual_copy_is_never_replaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'host-skills'
+            shutil.copytree(installer.SKILLS_DIR / 'zotero-paper-save', target / 'zotero-paper-save')
+            with self.assertRaisesRegex(ValueError, 'back it up and move it away'):
+                installer.install(target, update=True)
+            # Preflight failed, so nothing else was installed.
+            self.assertEqual([p.name for p in target.iterdir()], ['zotero-paper-save'])
+
+    def test_targets_inside_the_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / 'zotero-daily-papers'
+            shutil.copytree(ROOT, checkout, ignore=shutil.ignore_patterns('__pycache__', '.git'))
+            env = {**os.environ, 'XDG_CONFIG_HOME': tmp}
+            run = subprocess.run([sys.executable, 'install.py', '--host', 'claude', '--project', '--lang', 'zh'],
+                                 cwd=checkout, env=env, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.check_installed_commands(checkout / '.claude/skills')
+            for bad in (checkout, checkout / 'skills', checkout / 'skills/x', Path(tmp)):
+                run = subprocess.run([sys.executable, 'install.py', '--target', str(bad)], cwd=checkout,
+                                     env=env, capture_output=True, text=True)
+                self.assertNotEqual(run.returncode, 0, bad)
+
+    def test_project_install_survives_removing_the_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / 'zotero-daily-papers'
+            shutil.copytree(ROOT, checkout, ignore=shutil.ignore_patterns('__pycache__', '.git'))
+            project = Path(tmp) / 'my-project'
+            project.mkdir()
+            run = subprocess.run([sys.executable, str(checkout / 'install.py'), '--host', 'codex',
+                                  '--project', str(project)],
+                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            shutil.rmtree(checkout)
+            self.check_installed_commands(project / '.agents/skills')
+
+    def test_broken_checkout_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp) / '_zotero_shared'
+            shared.mkdir()
+            (shared / 'config.default.json').write_text('{}')
+            (shared / 'zdp_config.py').write_text('../../skills/_zotero_shared/zdp_config.py')
+            with mock.patch.object(installer, 'SHARED_SOURCE', shared):
+                with self.assertRaisesRegex(ValueError, 'does not look like a Python script'):
+                    installer.install(Path(tmp) / 'host-skills', dry_run=True)
+
+    def test_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'host-skills'
+            actions = installer.install(target, dry_run=True)
+            self.assertEqual(len(actions), 4)
+            self.assertFalse(target.exists())
 
     def test_host_targets(self):
         self.assertEqual(installer.host_target('claude'), Path.home() / '.claude/skills')
@@ -77,98 +156,8 @@ class LayoutTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             installer.host_target('cursor')
 
-    def test_project_install_uses_relative_links(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            # Project and this checkout live side by side; moving both keeps the links valid.
-            workspace = Path(tmp) / 'workspace'
-            checkout = workspace / 'zotero-daily-papers'
-            shutil.copytree(ROOT, checkout, symlinks=True,
-                            ignore=shutil.ignore_patterns('__pycache__', '.git'))
-            project = workspace / 'my-project'
-            project.mkdir()
-            run = subprocess.run([sys.executable, str(checkout / 'install.py'), '--host', 'claude',
-                                  '--project', str(project), '--lang', 'zh'],
-                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
-            self.assertEqual(run.returncode, 0, run.stderr)
-            target = project / '.claude/skills'
-            for name in (*installer.SKILLS, '_zotero_shared'):
-                self.assertFalse(os.path.isabs(os.readlink(target / name)), name)
-            moved = Path(tmp) / 'moved'
-            workspace.rename(moved)
-            for name in (*installer.SKILLS, '_zotero_shared'):
-                self.assertEqual((moved / 'my-project/.claude/skills' / name).resolve(),
-                                 (moved / 'zotero-daily-papers/skills' / name).resolve())
-                self.assertTrue((moved / 'my-project/.claude/skills' / name).is_dir())
-
-    def test_project_install_inside_this_checkout(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            checkout = Path(tmp) / 'zotero-daily-papers'
-            shutil.copytree(ROOT, checkout, ignore=shutil.ignore_patterns('__pycache__', '.git'))
-            run = subprocess.run([sys.executable, 'install.py', '--host', 'claude', '--project', '--lang', 'zh'],
-                                 cwd=checkout, env={**os.environ, 'XDG_CONFIG_HOME': tmp},
-                                 capture_output=True, text=True)
-            self.assertEqual(run.returncode, 0, run.stderr)
-            target = checkout / '.claude/skills'
-            for name in (*installer.SKILLS, '_zotero_shared'):
-                self.assertFalse(os.path.isabs(os.readlink(target / name)), name)
-            self.check_installed_commands(target)
-            for bad in (checkout, checkout / 'skills', checkout / 'skills/x', Path(tmp)):
-                run = subprocess.run([sys.executable, 'install.py', '--target', str(bad)], cwd=checkout,
-                                     env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
-                self.assertNotEqual(run.returncode, 0, bad)
-
-    def test_copy_install(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / 'host-skills'
-            self.assertEqual({a for a, _ in installer.install(target, lang='zh', copy=True)}, {'copy'})
-            self.assertFalse(any(p.is_symlink() for p in target.rglob('*')))
-            self.check_installed_commands(target)
-            self.assertEqual({a for a, _ in installer.install(target, lang='zh', copy=True)}, {'recopy'})
-            with self.assertRaises(ValueError):
-                installer.install(target, lang='en', copy=True)
-            with self.assertRaises(ValueError):
-                installer.install(target, lang='zh')
-            installer.install(target, lang='en', copy=True, update=True)
-            self.assertNotRegex((target / 'zotero-daily-papers/SKILL.md').read_text(), '[\u4e00-\u9fff]{4}')
-            installer.install(target, lang='en', update=True)
-            self.assertEqual((target / 'zotero-paper-save').resolve(), ROOT / 'skills/zotero-paper-save.en')
-            (target / 'zotero-paper-save').unlink()
-            (target / 'zotero-paper-save').mkdir()  # not ours: never replaced
-            with self.assertRaises(ValueError):
-                installer.install(target, lang='en', copy=True, update=True)
-
-    def test_symlink_preflight_suggests_copy(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / 'host-skills'
-            with mock.patch.object(installer.os, 'symlink', side_effect=OSError('privilege not held')):
-                with self.assertRaisesRegex(ValueError, '--copy'):
-                    installer.install(target)
-            self.assertFalse(target.exists())
-
-    def test_broken_checkout_is_rejected(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            shared = Path(tmp) / '_zotero_shared'
-            shared.mkdir()
-            (shared / 'config.default.json').write_text('{}')
-            (shared / 'zdp_config.py').write_text('../../skills/_zotero_shared/zdp_config.py')
-            with mock.patch.object(installer, 'SHARED_SOURCE', shared):
-                with self.assertRaisesRegex(ValueError, 'does not look like a Python script'):
-                    installer.install(Path(tmp) / 'host-skills', dry_run=True)
-
-    def test_old_english_links_are_migrated(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / 'host-skills'
-            target.mkdir()
-            for name in (*installer.SKILLS, installer.SHARED):  # layout of the previous version
-                (target / name).symlink_to(ROOT / 'skills-en' / name, target_is_directory=True)
-            actions = {a for a, _ in installer.install(target, lang='en')}
-            self.assertEqual(actions, {'relink'})
-            for name, source in installer.sources('en').items():
-                self.assertEqual((target / name).resolve(), source)
-            self.check_installed_commands(target)
-
     def test_project_requires_host(self):
-        run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', '/tmp/x', '--project'],
+        run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', 'x', '--project'],
                              capture_output=True, text=True)
         self.assertNotEqual(run.returncode, 0)
         self.assertIn('--project requires --host', run.stderr)
@@ -190,16 +179,8 @@ class LayoutTests(unittest.TestCase):
             self.assertEqual(effective['language'], 'en')
             self.assertEqual(effective['zotero']['pending_collection'], 'Pending')
             run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', str(Path(tmp) / 'other'),
-                                  '--dry-run'], env=env, capture_output=True, text=True)
+                                  '--lang', 'zh', '--dry-run'], env=env, capture_output=True, text=True)
             self.assertEqual(json.loads(config.read_text())['language'], 'en')
-
-    def test_copied_bundle_runs_without_repository_resources(self):
-        for lang in installer.LANGUAGES:
-            with tempfile.TemporaryDirectory() as tmp:
-                target = Path(tmp) / 'copied-skills'
-                for name, source in installer.sources(lang).items():
-                    shutil.copytree(source, target / name, ignore=shutil.ignore_patterns('__pycache__'))
-                self.check_installed_commands(target)
 
     def check_installed_commands(self, target):
         shared = target / '_zotero_shared'
@@ -218,36 +199,48 @@ class LayoutTests(unittest.TestCase):
         run(daily / 'agent_ranker.py', '--help')
         self.assertEqual(json.loads(run(daily / 'enrich_papers.py', stdin='[]')), [])
         for entry in target.glob('*/SKILL.md'):
-            for link in re.findall(r'\]\(([^)]+)\)', entry.read_text()):
+            for link in re.findall(r'\]\(([^)]+)\)', read(entry)):
                 if ':' not in link and not link.startswith('#'):
                     self.assertTrue((entry.parent / link.split('#')[0]).is_file(), (entry, link))
 
-    def test_dry_run_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / 'host-skills'
-            actions = installer.install(target, dry_run=True)
-            self.assertEqual(len(actions), 4)
-            self.assertFalse(target.exists())
 
-    def test_conflict_does_not_partially_install(self):
+@needs_symlinks
+class LinkMigrationTests(unittest.TestCase):
+    """Older versions installed links; reinstalling replaces those links with copies."""
+
+    def test_links_from_older_versions_become_copies(self):
+        layouts = {
+            'en': {name: ROOT / 'skills-en' / name for name in (*installer.SKILLS, installer.SHARED)},
+            'zh': installer.sources('zh'),
+        }
+        for lang, links in layouts.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                target = Path(tmp) / 'host-skills'
+                target.mkdir()
+                for name, source in links.items():
+                    (target / name).symlink_to(source, target_is_directory=True)
+                self.assertEqual({a for a, _ in installer.install(target, lang=lang)}, {'replace-link'})
+                InstallTests.assert_copied(self, target, lang)
+                # Only the links were removed, never what they pointed to.
+                self.assertTrue((installer.SHARED_SOURCE / 'config.default.json').is_file())
+
+    def test_language_switch_of_a_link_install_requires_update(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)
-            (target / 'zotero-paper-reader').mkdir()
-            with self.assertRaises(ValueError):
-                installer.install(target, update=True)
-            self.assertFalse((target / 'zotero-daily-papers').exists())
-            self.assertFalse((target / 'zotero-paper-save').exists())
+            for name, source in installer.sources('zh').items():
+                (target / name).symlink_to(source, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, '--update'):
+                installer.install(target, lang='en')
+            installer.install(target, lang='en', update=True)
+            InstallTests.assert_copied(self, target, 'en')
 
-    def test_legacy_link_requires_explicit_update(self):
+    def test_legacy_link_to_checkout_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)
-            legacy = target / 'zotero-daily-papers'
-            legacy.symlink_to(ROOT, target_is_directory=True)
-            with self.assertRaises(ValueError):
-                installer.install(target, lang='zh')
-            installer.install(target, lang='zh', update=True)
-            self.assertEqual(legacy.resolve(), ROOT / 'skills/zotero-daily-papers')
-            self.assertTrue((target / '_zotero_shared/config.default.json').is_file())
+            (target / 'zotero-daily-papers').symlink_to(ROOT, target_is_directory=True)
+            installer.install(target, lang='zh')
+            self.assertFalse((target / 'zotero-daily-papers').is_symlink())
+            self.assertTrue((ROOT / 'install.py').is_file())  # The checkout itself is untouched.
 
     def test_unknown_link_never_overwritten(self):
         with tempfile.TemporaryDirectory() as tmp:
