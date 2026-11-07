@@ -121,7 +121,7 @@ class Zotero:
             die("zotero.library_type must be 'user' or 'group'")
         if not dry_run and (not self.key or not self.lib_id):
             die("Zotero is not configured: set ZOTERO_API_KEY and ZOTERO_LIBRARY_ID "
-                "(or zotero.api_key / zotero.library_id in ~/.config/zotero-daily-papers/config.json). "
+                "(or zotero.api_key / zotero.library_id in _zotero_shared/config.json). "
                 "See references/zotero-setup.md")
         self.base = f"{API}/{self.lib_type}s/{self.lib_id or '0'}"
         self.cache_identity = self.base

@@ -14,7 +14,7 @@ Local mode needs no cloud API key or user ID; the personal library uses `/api/us
 A group library needs `library_type: "group"` and the group `library_id`, with edit permission.
 The program never reads or writes `zotero.sqlite`, never changes Attanger settings and never moves attachments directly.
 
-Local authorization is scoped by Zotero Server ID and saved with permission 600 as `local-auth-*.json` in the personal config directory.
+Local authorization is scoped by Zotero Server ID and saved with permission 600 as `~/.config/zotero-daily-papers/local-auth-*.json`, shared by all installs.
 Write authorization can be cleared in Zotero's advanced settings. The cache is kept separate from the cloud one so local/cloud versions are never mixed.
 `--dry-run` does not connect to Zotero, show the authorization dialog, download PDFs or change the library; a single-paper preview still fetches arXiv metadata.
 
@@ -41,7 +41,7 @@ Pending mode only puts **unfiled** papers into "Pending"; existing items already
 
 ## Configurable settings
 
-Personal overrides: `~/.config/zotero-daily-papers/config.json` (`ZDP_CONFIG` can point to another file).
+Settings of this install: `{SHARED}/config.json` (one per install location, kept on reinstall; `ZDP_CONFIG` can layer one more file on top).
 
 | Key | Default | Description |
 |---|---|---|
@@ -92,5 +92,5 @@ Historical tags of items or notes in the library are never cleaned up in bulk.
 
 `python3 "{SHARED}/zdp_config.py" --set-language en` (or `zh`) sets the language of new notes and localized defaults;
 `python3 "{SHARED}/zdp_config.py" --set-classification pending` or `--set-classification existing` sets the classification mode.
-These commands only change that key in the personal config and keep the rest. Confirm the effective value with `zdp_config.py`;
+These commands only change that key in `{SHARED}/config.json` and keep the rest. Confirm the effective value with `zdp_config.py`;
 when using ZDP_CONFIG, also check the value it overrides. Invalid values raise an error instead of silently falling back to the default.

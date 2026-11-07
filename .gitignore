@@ -22,6 +22,7 @@ history.json
 /tmp/
 /temp/
 
-# Project-level skill installs into this checkout (install.py --host ... --project)
+# Skill installs into this checkout (install.py --host ... --project) and its local config
 /.claude/skills/
 /.agents/skills/
+/skills/_zotero_shared/config.json
