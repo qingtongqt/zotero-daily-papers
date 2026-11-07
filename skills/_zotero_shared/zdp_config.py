@@ -7,6 +7,10 @@ Merge order (later wins):
   3. the JSON file named by ZDP_CONFIG
   4. env: ZOTERO_API_KEY, ZOTERO_LIBRARY_ID, ZOTERO_LIBRARY_TYPE
 
+`language` ("zh" or "en", env ZDP_LANGUAGE) picks the language of generated notes.
+With "zh" the default pending collection is named "待定" instead of "Pending"; an explicitly
+configured pending_collection always wins.
+
 Run directly to print the effective config (API key masked) and runtime paths.
 `--init` writes a personal config template once and never overwrites it.
 """
@@ -25,6 +29,9 @@ from pathlib import Path
 SHARED_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SHARED_DIR.parent.parent  # Legacy diagnostic field only.
 DEFAULT_CONFIG_PATH = SHARED_DIR / "config.default.json"
+LANGUAGES = ("zh", "en")
+# Localized defaults that sit below every personal override.
+LOCALIZED_DEFAULTS = {"zh": {"zotero": {"pending_collection": "待定"}}}
 
 
 def config_home() -> Path:
@@ -49,6 +56,12 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return base
 
 
+def validate_language(value: object) -> str:
+    if value not in LANGUAGES:
+        raise ValueError(f"language must be one of {', '.join(LANGUAGES)}, got {value!r}")
+    return value
+
+
 @lru_cache(maxsize=1)
 def load_config() -> dict:
     config = json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
@@ -59,12 +72,22 @@ def load_config() -> dict:
         if not explicit_path.is_file():
             raise FileNotFoundError(f"ZDP_CONFIG does not point to a file: {explicit_path}")
         paths.append(explicit_path)
+    overrides = []
     for path in paths:
         if path.is_file():
             loaded = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(loaded, dict):
                 raise ValueError(f"Configuration must be a JSON object: {path}")
-            _deep_merge(config, loaded)
+            overrides.append(loaded)
+    # The language is resolved first so localized defaults sit below every personal override.
+    language = config.get("language", "en")
+    for loaded in overrides:
+        language = loaded.get("language", language)
+    language = validate_language(os.environ.get("ZDP_LANGUAGE", "").strip() or language)
+    _deep_merge(config, copy.deepcopy(LOCALIZED_DEFAULTS.get(language, {})))
+    for loaded in overrides:
+        _deep_merge(config, loaded)
+    config["language"] = language
 
     zot = config["zotero"]
     for env, key in (("ZOTERO_API_KEY", "api_key"), ("ZOTERO_LIBRARY_ID", "library_id"),
@@ -84,6 +107,10 @@ def classification_mode(cfg: dict) -> str:
 
 def zotero_config() -> dict:
     return load_config()["zotero"]
+
+
+def language() -> str:
+    return load_config()["language"]
 
 
 def keyword_group(entry: object, where: str) -> list[str]:
@@ -173,49 +200,74 @@ def save_history(entries: list[dict]) -> None:
     tmp.replace(path)
 
 
-PERSONAL_TEMPLATE = {
-    "zotero": {
-        "backend": "local",
-        "classification_mode": "pending",
-        "pending_collection": "待定",
-        "library_type": "user",
-        "library_id": "",
-        "api_key": "",
-    },
-    "daily_papers": {
-        "top_n": 10,
-        "extra_keywords": [],
-    },
-}
+def personal_template(lang: str = "en") -> dict:
+    return {
+        "language": lang,
+        "zotero": {
+            "backend": "local",
+            "classification_mode": "pending",
+            "library_type": "user",
+            "library_id": "",
+            "api_key": "",
+        },
+        "daily_papers": {
+            "top_n": 10,
+            "extra_keywords": [],
+        },
+    }
+
+
+def update_personal_config(change) -> Path:
+    """Apply `change(config)` to the personal config atomically, keeping every other setting."""
+    path = personal_config_path()
+    config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if not isinstance(config, dict) or not isinstance(config.get("zotero", {}), dict):
+        raise ValueError("Personal configuration must contain a zotero object")
+    change(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    with temporary.open("w", encoding="utf-8") as stream:
+        os.chmod(temporary, 0o600)
+        json.dump(config, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+    temporary.replace(path)
+    load_config.cache_clear()
+    return path
+
+
+def set_language(lang: str) -> Path:
+    validate_language(lang)
+    return update_personal_config(lambda config: config.__setitem__("language", lang))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--init", action="store_true", help="Create the personal config template if absent")
+    parser.add_argument("--lang", choices=LANGUAGES,
+                        help="With --init: template language (default: current language)")
+    parser.add_argument("--set-language", choices=LANGUAGES,
+                        help="Set personal language for generated notes and localized defaults")
     parser.add_argument("--set-classification", choices=("pending", "existing"),
                         help="Set personal default: pending collection or match existing collections")
     args = parser.parse_args()
+    if args.set_language:
+        path = set_language(args.set_language)
+        print(f"Saved language={args.set_language}: {path}")
+        if not args.set_classification:
+            return
     if args.set_classification:
-        path = personal_config_path()
-        config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        if not isinstance(config, dict) or not isinstance(config.get("zotero", {}), dict):
-            raise ValueError("Personal configuration must contain a zotero object")
-        config.setdefault("zotero", {})["classification_mode"] = args.set_classification
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".json.tmp")
-        with temporary.open("w", encoding="utf-8") as stream:
-            os.chmod(temporary, 0o600)
-            json.dump(config, stream, ensure_ascii=False, indent=2)
-            stream.write("\n")
-        temporary.replace(path)
+        path = update_personal_config(
+            lambda config: config.setdefault("zotero", {}).__setitem__("classification_mode", args.set_classification))
         print(f"Saved classification_mode={args.set_classification}: {path}")
         return
     if args.init:
         path = personal_config_path()
+        # Resolve the template before creating the file: loading the config would read it half-written.
+        template = personal_template(args.lang or load_config()["language"])
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with path.open("x", encoding="utf-8") as stream:
-                json.dump(PERSONAL_TEMPLATE, stream, ensure_ascii=False, indent=2)
+                json.dump(template, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
             os.chmod(path, 0o600)
             print(f"Created personal configuration: {path}")

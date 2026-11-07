@@ -22,7 +22,7 @@ description: 每日论文推荐完整流水线：抓取、筛选、查重、锐�
 运行 `python3 "{SHARED}/zdp_config.py"` 解析 `runtime.temp_dir` 为 `TEMP_DIR`，
 运行 `python3 "{SHARED}/zotero_push.py" check`。本机模式需要 Zotero 10+ 打开及本地 API 开启。
 授权和排错见 [Zotero 配置](../_zotero_shared/references/zotero-setup.md)。不要打印凭据，不直接操作数据库。
-同时跑多条流水线时使用不同 `ZDP_TEMP_DIR`。默认中文，用户明确用英文则全部点评/笔记用英文。
+同时跑多条流水线时使用不同 `ZDP_TEMP_DIR`。点评和笔记默认用中文（有效配置 `language: "zh"`）；用户明确用英文则全部点评/笔记用英文。
 
 入库设置 `zotero.classification_mode` 仅有两个值：
 

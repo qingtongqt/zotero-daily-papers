@@ -18,27 +18,75 @@ spec.loader.exec_module(installer)
 class LayoutTests(unittest.TestCase):
     def test_three_peer_entries_and_resolvable_references(self):
         self.assertFalse((ROOT / 'SKILL.md').exists())
-        self.assertEqual({p.parent.name for p in (ROOT / 'skills').glob('*/SKILL.md')}, set(installer.SKILLS))
-        for entry in (ROOT / 'skills').glob('*/SKILL.md'):
-            self.assertIn(f'name: {entry.parent.name}', entry.read_text())
-            for link in re.findall(r'\]\(([^)]+)\)', entry.read_text()):
-                if ':' not in link and not link.startswith('#'):
-                    self.assertTrue((entry.parent / link.split('#')[0]).is_file(), (entry, link))
+        for root in installer.LANGUAGES.values():
+            self.assertEqual({p.parent.name for p in root.glob('*/SKILL.md')}, set(installer.SKILLS))
+            for entry in [*root.glob('*/SKILL.md'), *root.glob('*/references/*.md')]:
+                if entry.name == 'SKILL.md':
+                    self.assertIn(f'name: {entry.parent.name}', entry.read_text())
+                for link in re.findall(r'\]\(([^)]+\.md(?:#[^)]*)?)\)', entry.read_text()):
+                    if ':' not in link:
+                        self.assertTrue((entry.parent / link.split('#')[0]).is_file(), (entry, link))
+
+    def test_language_trees_mirror_each_other_and_share_code(self):
+        zh, en = installer.LANGUAGES['zh'], installer.LANGUAGES['en']
+        docs = lambda root: sorted(p.relative_to(root) for p in root.rglob('*.md'))
+        self.assertEqual(docs(zh), docs(en))
+        self.assertEqual((en / 'zotero-daily-papers/scripts').resolve(), zh / 'zotero-daily-papers/scripts')
+        for name in ('zdp_config.py', 'zotero_push.py', 'md2zotero.py', 'config.default.json'):
+            self.assertEqual((en / '_zotero_shared' / name).resolve(), zh / '_zotero_shared' / name)
+        self.assertNotRegex((en / 'zotero-daily-papers/SKILL.md').read_text(), '[\u4e00-\u9fff]{4}')
 
     def test_install_keeps_shared_runtime_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / 'host-skills'
-            installer.install(target)
+            installer.install(target, lang='zh')
             for name in (*installer.SKILLS, '_zotero_shared'):
                 self.assertEqual((target / name).resolve(), ROOT / 'skills' / name)
-            self.assertTrue(all(a == 'unchanged' for a, _ in installer.install(target)))
+            self.assertTrue(all(a == 'unchanged' for a, _ in installer.install(target, lang='zh')))
             self.check_installed_commands(target)
 
-    def test_copied_bundle_runs_without_repository_resources(self):
+    def test_english_install_and_language_switch(self):
         with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / 'copied-skills'
-            shutil.copytree(ROOT / 'skills', target, ignore=shutil.ignore_patterns('__pycache__'))
+            target = Path(tmp) / 'host-skills'
+            installer.install(target, lang='en')
+            for name in (*installer.SKILLS, '_zotero_shared'):
+                self.assertEqual((target / name).resolve(), (ROOT / 'skills-en' / name).resolve())
+            self.assertTrue(all(a == 'unchanged' for a, _ in installer.install(target, lang='en')))
             self.check_installed_commands(target)
+            with self.assertRaises(ValueError):
+                installer.install(target, lang='zh')
+            self.assertEqual({a for a, _ in installer.install(target, lang='zh', update=True)}, {'relink'})
+            self.assertEqual((target / 'zotero-paper-save').resolve(), ROOT / 'skills/zotero-paper-save')
+            with self.assertRaises(ValueError):
+                installer.install(target, lang='fr')
+
+    def test_cli_saves_language_to_personal_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / 'zotero-daily-papers/config.json'
+            config.parent.mkdir()
+            config.write_text(json.dumps({'daily_papers': {'top_n': 4}}))
+            env = {**os.environ, 'XDG_CONFIG_HOME': tmp}
+            env.pop('ZDP_LANGUAGE', None)
+            run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', str(Path(tmp) / 'skills')],
+                                 env=env, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(json.loads(config.read_text()), {'daily_papers': {'top_n': 4}, 'language': 'en'})
+            effective = subprocess.run([sys.executable, str(ROOT / 'skills/_zotero_shared/zdp_config.py')],
+                                       env=env, capture_output=True, text=True)
+            effective = json.loads(effective.stdout)
+            self.assertEqual(effective['language'], 'en')
+            self.assertEqual(effective['zotero']['pending_collection'], 'Pending')
+            run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', str(Path(tmp) / 'other'),
+                                  '--dry-run'], env=env, capture_output=True, text=True)
+            self.assertEqual(json.loads(config.read_text())['language'], 'en')
+
+    def test_copied_bundle_runs_without_repository_resources(self):
+        for lang, root in installer.LANGUAGES.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                target = Path(tmp) / 'copied-skills'
+                shutil.copytree(root, target, ignore=shutil.ignore_patterns('__pycache__'))
+                self.assertFalse(any(p.is_symlink() for p in target.rglob('*')), lang)
+                self.check_installed_commands(target)
 
     def check_installed_commands(self, target):
         shared = target / '_zotero_shared'
@@ -83,8 +131,8 @@ class LayoutTests(unittest.TestCase):
             legacy = target / 'zotero-daily-papers'
             legacy.symlink_to(ROOT, target_is_directory=True)
             with self.assertRaises(ValueError):
-                installer.install(target)
-            installer.install(target, update=True)
+                installer.install(target, lang='zh')
+            installer.install(target, lang='zh', update=True)
             self.assertEqual(legacy.resolve(), ROOT / 'skills/zotero-daily-papers')
             self.assertTrue((target / '_zotero_shared/config.default.json').is_file())
 

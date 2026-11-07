@@ -1,134 +1,145 @@
 # zotero-daily-papers
 
-让 AI Agent（如 Claude Code、Codex）每天帮你从 arXiv 挑选论文、精读，并把结果整理进本机 Zotero：
-每日推荐总览、论文条目与 PDF、点评笔记、必读论文的精读笔记，全部保存在 Zotero 里。
+[中文](README.zh-CN.md) | English
 
-只需在 Agent 对话中说一句「今日论文推荐」，剩下的步骤自动完成。
+Let an AI agent (such as Claude Code or Codex) pick papers from arXiv every day, read them, and organize the results in your local Zotero:
+a daily recommendation digest, paper items with PDFs, review notes, and deep-reading notes for must-read papers, all stored in Zotero.
 
-## 功能
+Just say "today's paper recommendations" in the agent chat and the rest happens automatically.
 
-- **每日推荐**：抓取 arXiv 新论文和 Hugging Face 热门论文 → 按你的研究方向筛选评分 → 与 Zotero 已有条目查重 → 逐篇锐评。
-- **自动入库**：先保存当天的推荐总览，再把入选论文存入 Zotero（含 PDF 和点评子笔记），最后回填总览中的条目链接。
-- **精读笔记**：对必读论文读取全文，生成包含方法、公式、主结果表和关键图的精读笔记，保存为条目子笔记。
-- **单独使用**：也可以只保存某篇论文，或只精读某篇论文。
-- **安全可重跑**：重复运行会先查重，复用已有条目和笔记，不会重复创建；保留你手动整理的分类和附件。
-- **本地优先**：通过 Zotero 10 的本机 API 写入，不需要云端 API key，不直接读写 `zotero.sqlite`。
-- **兼容 Attanger**：与 Attanger 插件配合，自动核对 PDF 是否已被移动到你的文件目录。
+## Features
 
-## 工作流程
+- **Daily recommendations**: fetch new arXiv papers and Hugging Face trending papers → filter and score by your research directions → deduplicate against your Zotero library → review each paper.
+- **Automatic saving**: save today's digest first, then the selected papers (with PDF and review child note), and finally backfill the item links in the digest.
+- **Deep-reading notes**: read the full text of must-read papers and write a note with method, formulas, main results table and key figures, saved as a child note.
+- **Standalone use**: you can also just save a paper, or just deep-read a paper.
+- **Safe to rerun**: reruns deduplicate first and reuse existing items and notes instead of creating new ones; your manual collections and attachments are kept.
+- **Local first**: writes through Zotero 10's local API; no cloud API key needed, and `zotero.sqlite` is never read or written directly.
+- **Attanger compatible**: works with the Attanger plugin and verifies whether PDFs were moved to your file directory.
 
-1. **抓取**：arXiv 最新一个公告批次，以及 Hugging Face Daily / Trending。
-2. **筛选评分**：先按关键词初筛，再由 Agent 读摘要、按研究方向打分。
-3. **查重**：对照 Zotero 中已有的条目。
-4. **锐评**：Agent 逐篇点评，分为必读、值得看、可跳过。
-5. **保存每日总览**：写入 `Daily Papers` 分类。
-6. **论文入库**：存入「待定」或匹配的已有分类。
-7. **精读**：为必读论文生成精读笔记，保存为条目子笔记。
+## Workflow
 
-评分、锐评和精读都由当前对话中的 Agent 完成，脚本不会额外调用任何付费模型 API。
+1. **Fetch**: the latest arXiv announcement batch, plus Hugging Face Daily / Trending.
+2. **Filter and score**: keyword prefilter, then the agent reads abstracts and scores by research direction.
+3. **Deduplicate**: against existing Zotero items.
+4. **Review**: the agent reviews each paper as must read, worth a look, or skip.
+5. **Save the daily digest**: into the `Daily Papers` collection.
+6. **Save papers**: into "Pending" or a matching existing collection.
+7. **Deep-read**: write deep-reading notes for must-read papers as child notes.
 
-## 环境要求
+Scoring, reviewing and deep reading are all done by the agent in the current conversation; the scripts never call any paid model API.
 
-| 依赖 | 说明 |
+## Requirements
+
+| Dependency | Notes |
 |---|---|
-| Python 3.10+ | 仅用标准库，无需 `pip install` |
-| `curl` | 富化脚本获取 arXiv HTML、元数据页及 PDF 所需 |
-| Zotero 10+ | 需要开启本机 API（见下文） |
-| Claude Code 或 Codex | 或其他能运行本机命令、支持 Skill 的 AI Agent |
-| [Attanger](https://github.com/MuiseDestiny/zotero-attanger)（可选） | 自动重命名并移动 PDF |
-| `pdftotext`（可选） | 从 PDF 首页提取作者机构，macOS 可通过 `brew install poppler` 安装 |
+| Python 3.10+ | standard library only, no `pip install` |
+| `curl` | needed by the enrichment script for arXiv HTML, metadata pages and PDFs |
+| Zotero 10+ | with the local API enabled (see below) |
+| Claude Code or Codex | or any AI agent that can run local commands and supports skills |
+| [Attanger](https://github.com/MuiseDestiny/zotero-attanger) (optional) | renames and moves PDFs automatically |
+| `pdftotext` (optional) | extracts affiliations from the first PDF page; on macOS `brew install poppler` |
 
-## 快速开始
+## Quick start
 
-### 1. 下载项目
+### 1. Get the project
 
 ```bash
 git clone https://github.com/qingtongqt/zotero-daily-papers.git
 cd zotero-daily-papers
 ```
 
-项目目录需要长期保留：Skill 安装后通过链接指向这里，共享脚本也从这里运行。
+Keep the project directory: installed skills link here, and the shared scripts run from here.
 
-### 2. 开启 Zotero 本机 API
+### 2. Enable the Zotero local API
 
-打开 Zotero → **设置 → 高级**，勾选「允许此计算机上的其他应用程序与 Zotero 通信」。
+Open Zotero → **Settings → Advanced** and check "Allow other applications on this computer to communicate with Zotero".
 
-然后检查连接并申请写入授权：
+Then check the connection and request write authorization:
 
 ```bash
-python3 skills/_zotero_shared/zotero_push.py check       # 检查能否连上本机 Zotero
-python3 skills/_zotero_shared/zotero_push.py authorize   # Zotero 会弹出授权窗口
+python3 skills/_zotero_shared/zotero_push.py check       # can we reach the local Zotero?
+python3 skills/_zotero_shared/zotero_push.py authorize   # Zotero shows an authorization dialog
 ```
 
-在弹窗中选择 **「始终允许」**，之后运行就不会再弹窗。
+Choose **"Always Allow"** in the dialog so later runs do not ask again.
 
-### 3. 安装 Skill
+### 3. Install the skills
 
-安装器把三个 Skill 和共享目录以符号链接的形式放进 Agent 的技能目录，不复制代码，重复运行是安全的。
+The installer symlinks the three skills and the shared directory into the agent's skill directory without copying code; rerunning is safe.
+
+Choose the language with `--lang`: `en` (English, default) or `zh` (Chinese). The language decides the skill instructions, the reviews and notes the agent writes,
+the note title markers (`[Deep Read]` or `【精读】`) and the default pending collection name (`Pending` or `待定`), and is saved to your personal config.
 
 **Claude Code**
 
 ```bash
-python3 install.py --target ~/.claude/skills
+python3 install.py --target ~/.claude/skills              # English
+python3 install.py --target ~/.claude/skills --lang zh    # 中文
 ```
 
-安装后在当前会话中即可使用。可以直接用自然语言触发，也可以输入 `/zotero-daily-papers` 手动调用。
+The skills are available in the current session. Trigger them in natural language, or call `/zotero-daily-papers` manually.
 
 **Codex**
 
 ```bash
-python3 install.py --target ~/.agents/skills
+python3 install.py --target ~/.agents/skills              # add --lang zh for Chinese
 ```
 
-安装后如果 Skill 没有出现，重启 Codex。可以直接用自然语言触发，也可以输入 `$zotero-daily-papers`
-或通过 `/skills` 选择调用。较旧版本的 Codex 使用 `~/.codex/skills` 目录。
+Restart Codex if the skills do not show up. Trigger them in natural language, call `$zotero-daily-papers`,
+or pick it via `/skills`. Older Codex versions use the `~/.codex/skills` directory.
 
-> 两个都用的话，两条命令各运行一次即可。它们链接到同一个项目目录，更新代码只需改一处。
-> 如需复制安装，把 `skills/` 下的三个 Skill 和 `_zotero_shared/` 一起复制到宿主技能目录，保持四个目录同级。
+> If you use both, run both commands. They link to the same project directory, so updating the code happens in one place.
+> To install by copying, copy the three skills and `_zotero_shared/` from `skills-en/` with `cp -rL` (to resolve the links inside) into the host skill directory, keeping the four directories side by side, then run `python3 skills/_zotero_shared/zdp_config.py --set-language en`.
+>
+> To switch an existing install to another language: `python3 install.py --target <dir> --lang zh --update`.
+>
+> Upgrading from an older version: the default language is now English. Chinese users should run `python3 install.py --target <dir> --lang zh` (or `zdp_config.py --set-language zh`); otherwise new papers go to `Pending` and new note titles are in English.
 
-如果你的 Agent 不支持 Skill 目录，也可以直接在对话里让它读取 `skills/zotero-daily-papers/SKILL.md`。
+If your agent does not support skill directories, ask it in the chat to read `skills-en/zotero-daily-papers/SKILL.md`.
 
-### 4. 设置研究方向
+### 4. Set your research directions
 
-默认配置面向三个方向：多模态大模型幻觉、大模型后训练、大模型架构。要换成你自己的方向，先创建个人配置：
+The default config targets three directions: MLLM hallucination, LLM post-training and LLM architecture. To use your own, create a personal config:
 
 ```bash
 python3 skills/_zotero_shared/zdp_config.py --init
 ```
 
-然后编辑 `~/.config/zotero-daily-papers/config.json`，见下文[研究方向](#研究方向)。
+Then edit `~/.config/zotero-daily-papers/config.json`; see [Research directions](#research-directions) below.
 
-### 5. 开始使用
+### 5. Use it
 
-在 Agent 对话中直接说：
+Just say in the agent chat:
 
-| 你说 | 执行的操作 |
+| You say | What happens |
 |---|---|
-| 「今日论文推荐」 | 完整流程：抓取、筛选、锐评、入库、精读必读论文 |
-| 「推荐过去三天的论文」 | 同上，时间范围为最近 3 天（也支持「过去一周」） |
-| 「继续上次的推荐」 | 核对 Zotero 实际状态，只重试未完成的部分 |
-| 「把 2311.16922 保存到 Zotero」 | 只保存论文和 PDF，不精读 |
-| 「精读一下 2311.16922」/「快速看一下这篇」 | 读论文并保存笔记到对应条目下 |
+| "Today's paper recommendations" | full pipeline: fetch, filter, review, save, deep-read must-read papers |
+| "Recommend papers from the past three days" | same, for the last 3 days (also "past week") |
+| "Continue the last recommendation" | check the actual Zotero state and retry only the unfinished parts |
+| "Save 2311.16922 to Zotero" | save the paper and PDF only, no deep reading |
+| "Deep-read 2311.16922" / "Take a quick look at this paper" | read the paper and save a note under its item |
 
-## Zotero 中的结果
+## Results in Zotero
 
-| 内容 | 保存位置 |
+| Content | Location |
 |---|---|
-| 每日推荐总览 | 顶层分类 `Daily Papers`（不存在时自动创建） |
-| 入选论文 | 默认放入顶层分类 `待定`；可改为自动匹配已有分类 |
-| PDF | 论文条目的附件；Attanger 是否移动取决于插件设置及事件处理，脚本会检查结果 |
-| 每日锐评、精读笔记 | 论文条目的子笔记 |
+| Daily digest | top-level collection `Daily Papers` (created if missing) |
+| Selected papers | top-level collection `Pending` by default; can match existing collections instead |
+| PDF | attachment of the paper item; whether Attanger moves it depends on the plugin settings and event handling, and the script checks the result |
+| Daily reviews, deep-reading notes | child notes of the paper item |
 
-笔记通过标题中的标识识别类型，如 `【每日推荐】`、`【每日锐评】`、`【精读】`、`【速读】`，每日笔记的标题还带日期。
-请不要删除这些标识，否则重跑时无法识别已有笔记。
+Note types are identified by markers in their titles, such as `[Daily Digest]`, `[Daily Review]`, `[Deep Read]`, `[Quick Read]`; daily notes also carry the date.
+Do not remove these markers, or reruns cannot recognize existing notes. Chinese markers (`【每日推荐】` etc.) are recognized too, so switching language keeps deduplication working.
 
-## 配置
+## Configuration
 
-默认配置在 [`config.default.json`](skills/_zotero_shared/config.default.json)，不要直接修改它。
-个人设置写在 `~/.config/zotero-daily-papers/config.json`，只需写要覆盖的键：
+The defaults live in [`config.default.json`](skills/_zotero_shared/config.default.json); do not edit it directly.
+Personal settings go in `~/.config/zotero-daily-papers/config.json`, containing only the keys you override:
 
 ```json
 {
+  "language": "en",
   "zotero": {
     "classification_mode": "pending",
     "attach_pdf": "upload"
@@ -139,16 +150,16 @@ python3 skills/_zotero_shared/zdp_config.py --init
 }
 ```
 
-合并规则：对象逐层合并；列表（如 `directions`）整体替换。
-查看实际生效的配置：
+Merge rule: objects merge recursively; lists (such as `directions`) are replaced as a whole.
+Show the effective config:
 
 ```bash
 python3 skills/_zotero_shared/zdp_config.py
 ```
 
-### 研究方向
+### Research directions
 
-研究方向决定哪些论文会被选中，也会作为标签写入条目，但**不会**决定论文进入哪个分类。
+Research directions decide which papers are selected and are written to items as tags, but they do **not** decide which collection a paper goes to.
 
 ```json
 {
@@ -156,12 +167,12 @@ python3 skills/_zotero_shared/zdp_config.py
     "directions": [
       {
         "id": "rag",
-        "name": "检索增强生成",
+        "name": "Retrieval-Augmented Generation",
         "keywords": [["retrieval-augmented", "rag"], "dense retrieval", ["reranker", "reranking"]]
       },
       {
         "id": "llm-agent",
-        "name": "大模型智能体",
+        "name": "LLM Agents",
         "keywords": [["llm agent", "llm agents", "language agent"], ["tool use", "tool learning", "function calling"], "agentic search"]
       }
     ],
@@ -177,99 +188,104 @@ python3 skills/_zotero_shared/zdp_config.py
 }
 ```
 
-- `keywords`：研究方向词。论文至少命中一个方向词或关注词，才进入初筛计分。每一项可以是单个词，也可以是一组同义词（如 `["rlvr", "verifiable reward"]`），同一组最多计一次分：命中标题加 3 分，仅命中摘要加 2 分。各方向分别计分，论文取得分最高的方向，不同方向的分数不累加。之后由 Agent 读摘要评分。
-- `focus_keywords`：特别关注的主题词，写法同 `keywords`（可写同义词组）。每组命中一次，总分加 `focus_bonus`（默认 3）；只命中关注词也能进入初筛。
-- `quality_boost`：读取 arXiv comment 字段。写明 `venues` 中的会议（如 `Accepted to NeurIPS 2026`）时总分乘 `venue_multiplier`（默认 1.5）；只写 Accepted / To appear 或是会议 workshop 时乘 `accepted_multiplier`（默认 1.2）；含 Under review、Submitted to 等字样不加权。
-- `negative_keywords`：标题或摘要命中即直接排除，用于过滤不关心的应用领域。
-- `arxiv_categories`：抓取哪些 arXiv 分类。
+- `keywords`: direction terms. A paper must hit at least one direction term or focus term to enter prefilter scoring. Each entry is a single term or a group of synonyms (e.g. `["rlvr", "verifiable reward"]`), and a group scores at most once: 3 points for a title hit, 2 for an abstract-only hit. Each direction is scored separately and a paper takes its best direction; scores of different directions do not add up. The agent then scores by reading the abstract.
+- `focus_keywords`: topics of special interest, written like `keywords` (synonym groups allowed). Each group hit adds `focus_bonus` (default 3) to the total; a paper hitting only focus terms can also enter the prefilter.
+- `quality_boost`: reads the arXiv comment field. A venue from `venues` (e.g. `Accepted to NeurIPS 2026`) multiplies the total by `venue_multiplier` (default 1.5); a bare Accepted / To appear or a workshop multiplies by `accepted_multiplier` (default 1.2); Under review, Submitted to, etc. get no boost.
+- `negative_keywords`: a hit in title or abstract excludes the paper, to filter out application areas you do not care about.
+- `arxiv_categories`: which arXiv categories to fetch.
 
-### 分类模式
+### Classification mode
 
-论文进入哪个 Zotero 分类有两种模式：
+There are two modes for which Zotero collection a paper goes to:
 
-| 模式 | 行为 |
+| Mode | Behavior |
 |---|---|
-| `pending`（默认） | 新论文统一进入「待定」，由你稍后手动整理 |
-| `existing` | Agent 读取你已有的分类结构，按论文内容匹配最合适的分类；找不到合适的才放入「待定」 |
+| `pending` (default) | new papers all go to "Pending" for you to organize later |
+| `existing` | the agent reads your collection structure and matches the best collection by content; only papers without a match go to "Pending" |
 
 ```bash
 python3 skills/_zotero_shared/zdp_config.py --set-classification existing
 ```
 
-两种模式下，已经在某个分类里的论文都会保留原分类，不会被额外加进「待定」。
+In both modes, papers already in some collection keep it and are not added to "Pending".
 
-### 常用配置项
+### Common settings
 
-| 键（`zotero` 节） | 默认值 | 说明 |
+| Key (top level) | Default | Description |
 |---|---|---|
-| `root_collection` | `Daily Papers` | 每日推荐总览所在的顶层分类 |
-| `pending_collection` | `待定` | 未分类论文的去处 |
-| `classification_mode` | `pending` | `pending` 或 `existing` |
-| `attach_pdf` | `upload` | `upload` 下载 PDF；`link` 仅添加链接；`none` 不添加 |
-| `attanger_wait_seconds` | `10` | 上传 PDF 后等待 Attanger 处理的秒数，`0` 关闭检查 |
-| `write_tiers` | `["must", "worth"]` | 哪些等级的推荐论文会入库 |
+| `language` | `en` | `en` or `zh`; set by `install.py --lang`, or change with `zdp_config.py --set-language` |
 
-| 键（`daily_papers` 节） | 默认值 | 说明 |
+| Key (`zotero` section) | Default | Description |
 |---|---|---|
-| `top_n` | `10` | 每天最终入选的论文数上限 |
-| `candidate_pool_size` | `30` | 关键词初筛后交给 Agent 打分的候选数 |
-| `recall_min_score` | `3` | 关键词初筛的最低分 |
-| `ranking.min_score` | `2.0` | Agent 相关性评分（0–4）的入选门槛 |
-| `focus_bonus` | `3` | 每命中一组关注词加的分数 |
+| `root_collection` | `Daily Papers` | top-level collection holding the daily digests |
+| `pending_collection` | `Pending` (`待定` in Chinese) | where unclassified papers go |
+| `classification_mode` | `pending` | `pending` or `existing` |
+| `attach_pdf` | `upload` | `upload` downloads the PDF; `link` only adds a link; `none` adds nothing |
+| `attanger_wait_seconds` | `10` | seconds to wait for Attanger after uploading a PDF; `0` disables the check |
+| `write_tiers` | `["must", "worth"]` | which recommendation tiers are saved |
 
-全部配置项、Web API 模式和排错说明见 [Zotero 配置](skills/_zotero_shared/references/zotero-setup.md)。
+| Key (`daily_papers` section) | Default | Description |
+|---|---|---|
+| `top_n` | `10` | maximum number of papers selected per day |
+| `candidate_pool_size` | `30` | candidates handed to the agent after keyword prefiltering |
+| `recall_min_score` | `3` | minimum keyword prefilter score |
+| `ranking.min_score` | `2.0` | selection threshold of the agent's relevance score (0–4) |
+| `focus_bonus` | `3` | points added per focus group hit |
 
-## 关于 Attanger
+All settings, Web API mode and troubleshooting are in [Zotero setup](skills-en/_zotero_shared/references/zotero-setup.md).
 
-装了 Attanger 时，脚本上传 PDF 后会等待几秒，并在结果中报告 PDF 的状态：
+## About Attanger
 
-- `moved`：已被 Attanger 移到你的文件目录。
-- `not_moved`：仍在 Zotero 存储目录。请在 Zotero 中右键该附件 → Attanger → 重命名并移动。
+With Attanger installed, the script waits a few seconds after uploading a PDF and reports the PDF status:
 
-之后如果在 Zotero 中调整了论文分类，调整完成后再对 PDF 执行一次 Attanger 的「重命名并移动」。
+- `moved`: Attanger moved it to your file directory.
+- `not_moved`: still in the Zotero storage directory. Right-click the attachment in Zotero → Attanger → Rename and Move.
 
-## 命令行参考
+If you later change a paper's collection in Zotero, run Attanger's "Rename and Move" on the PDF again afterwards.
 
-日常使用只需和 Agent 对话。以下命令供调试或手动操作：
+## Command-line reference
+
+Daily use only needs the agent chat. These commands are for debugging or manual operation:
 
 ```bash
-# 检查连接、申请授权
+# Check the connection, request authorization
 python3 skills/_zotero_shared/zotero_push.py check
 python3 skills/_zotero_shared/zotero_push.py authorize
 
-# 保存单篇论文（pending 模式）
+# Save a single paper (pending mode)
 python3 skills/_zotero_shared/zotero_push.py upsert-paper --arxiv 2311.16922
 
-# 保存到指定分类（先列出分类及其 key）
+# Save into specific collections (list collections and their keys first)
 python3 skills/_zotero_shared/zotero_push.py collections
-python3 skills/_zotero_shared/zotero_push.py upsert-paper --arxiv 2311.16922 --collections <KEY> --classification-reason "理由"
+python3 skills/_zotero_shared/zotero_push.py upsert-paper --arxiv 2311.16922 --collections <KEY> --classification-reason "reason"
 
-# 查找条目、查看附件真实路径和已有笔记
+# Find items, show real attachment paths and existing notes
 python3 skills/_zotero_shared/zotero_push.py find --arxiv 2311.16922
 python3 skills/_zotero_shared/zotero_push.py attachments --arxiv 2311.16922
 python3 skills/_zotero_shared/zotero_push.py notes --arxiv 2311.16922
 
-# 只预览，不修改文献库
+# Preview only, without changing the library
 python3 skills/_zotero_shared/zotero_push.py --dry-run upsert-paper --arxiv 2311.16922
 ```
 
-## 项目结构
+## Project structure
 
 ```text
 zotero-daily-papers/
-├── skills/
-│   ├── zotero-daily-papers/           # 总入口、推荐脚本和锐评指南
-│   ├── zotero-paper-save/             # 单篇入库与分类
-│   ├── zotero-paper-reader/           # 精读流程和笔记模板
-│   └── _zotero_shared/                # Zotero 脚本、默认配置和配置说明
+├── skills/                            # Chinese skills and all code
+│   ├── zotero-daily-papers/           # entry point, recommendation scripts and review guide
+│   ├── zotero-paper-save/             # single-paper saving and classification
+│   ├── zotero-paper-reader/           # reading workflow and note template
+│   └── _zotero_shared/                # Zotero scripts, default config and setup notes
+├── skills-en/                         # English skill instructions (scripts link to skills/, one shared codebase)
 ├── tests/
-└── install.py                         # Skill 安装器
+└── install.py                         # skill installer (--lang zh|en)
 ```
 
-## 数据与隐私
+## Data and privacy
 
-- 个人配置、本地授权和缓存保存在 `~/.config/zotero-daily-papers/`（授权文件权限为 600）。
-- 中间文件写入系统临时目录，可用环境变量 `ZDP_TEMP_DIR` 指定。
-- 抓取访问 arXiv 和 Hugging Face Daily/Trending API；富化访问 arXiv 页面与 PDF，本机入库访问 localhost。
-- 使用 Web API 模式时还会访问 Zotero 云端及其返回的文件上传地址；该模式嵌入图片时也会访问笔记中的图片 URL。
-- Agent 获取论文全文、项目主页或相关资料时，可能另行访问对应站点。
+- Personal config, local authorization and caches are stored in `~/.config/zotero-daily-papers/` (authorization files have permission 600).
+- Intermediate files go to the system temp directory; set `ZDP_TEMP_DIR` to choose another.
+- Fetching accesses arXiv and the Hugging Face Daily/Trending APIs; enrichment accesses arXiv pages and PDFs; local saving accesses localhost.
+- Web API mode also accesses the Zotero cloud and the file upload URLs it returns; embedding images in that mode also accesses the image URLs in notes.
+- When the agent fetches full texts, project pages or related material, it may access those sites as well.

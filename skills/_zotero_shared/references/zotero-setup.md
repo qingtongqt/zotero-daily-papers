@@ -43,6 +43,10 @@ pending 模式只把**未归类**的论文放进「待定」；已在任意分�
 
 个人覆盖：`~/.config/zotero-daily-papers/config.json`（`ZDP_CONFIG` 可指定其他文件）。
 
+| 键 | 默认 | 说明 |
+|---|---|---|
+| language | en | `en` / `zh`：生成的笔记标题和本地化默认值所用语言；环境变量 ZDP_LANGUAGE 可覆盖 |
+
 | 键（zotero 节） | 默认 | 说明 |
 |---|---|---|
 | backend | local | local / web；环境变量 ZOTERO_BACKEND 可覆盖 |
@@ -51,7 +55,7 @@ pending 模式只把**未归类**的论文放进「待定」；已在任意分�
 | attanger_wait_seconds | 10 | 上传后等待并核对 Attanger 移动结果的秒数；0 关闭核对 |
 | root_collection | Daily Papers | 每日推荐总览所在的顶层分类（不存在时自动创建），总览直接放在其中 |
 | classification_mode | pending | pending：统一待定；existing：读取已有分类，由 Agent 语义判断 |
-| pending_collection | 待定 | pending 默认目标，以及 existing 无匹配时的根目录分类 |
+| pending_collection | 待定（zh）/ Pending（en） | pending 默认目标，以及 existing 无匹配时的根目录分类 |
 | write_tiers | must, worth | 每日推荐入库等级 |
 | max_embedded_images_per_note | 4 | 仅 Web 模式生效；本地模式插图为链接 |
 
@@ -75,7 +79,8 @@ Web 模式上传文件使用 Zotero 云端存储，无法读取本地 linked fil
 ## 标签与笔记识别
 
 新条目仅使用普通研究方向名称和主题标签，不再生成 `dp` 或 `dp/...` 标签。
-笔记类型通过正文首个一级标题识别：`【精读】`、`【速读】`、`【每日锐评】`、`【每日推荐】`。
+笔记类型通过正文首个一级标题识别：`【精读】`、`【速读】`、`【每日锐评】`、`【每日推荐】`
+（英文安装写作 `[Deep Read]`、`[Quick Read]`、`[Daily Review]`、`[Daily Digest]`，两种写法始终都能识别）。
 每日锐评和总览标题同时包含日期，用于区分不同天的记录。
 
 同一父条目下的同类型笔记可被查重；每日总览只在总览分类内查找，按类型和日期更新。
@@ -83,8 +88,9 @@ Web 模式上传文件使用 Zotero 云端存储，无法读取本地 linked fil
 旧版标签仅作为读取兼容：更新旧笔记时转成上述标题并移除其旧 dp 标签，保留其他标签。
 不会自动批量清理库内历史条目或笔记的标签。
 
-## 切换分类模式
+## 切换语言或分类模式
 
-`python3 "{SHARED}/zdp_config.py" --set-classification pending` 或 `--set-classification existing`。
-命令只修改个人配置中的 classification_mode，保留其余设置。通过 `zdp_config.py` 确认实际生效值；
+`python3 "{SHARED}/zdp_config.py" --set-language zh`（或 `en`）设置新笔记和本地化默认值的语言；
+`python3 "{SHARED}/zdp_config.py" --set-classification pending` 或 `--set-classification existing` 设置分类模式。
+命令只修改个人配置中的对应键，保留其余设置。通过 `zdp_config.py` 确认实际生效值；
 如使用 ZDP_CONFIG，需同时检查该文件覆盖值。非法模式会报错，不静默退回默认模式。

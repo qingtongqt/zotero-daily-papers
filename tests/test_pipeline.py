@@ -123,7 +123,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual([o['itemType'] for o in creates], ['note', 'preprint', 'note'])
         self.assertIn('https://arxiv.org/abs/2311.16922', creates[0]['note'])
         key = result['papers']['2311.16922']['item_key']
-        pending = next(k for k, c in zot.collections.items() if c['name'] == '待定')
+        pending = next(k for k, c in zot.collections.items() if c['name'] == 'Pending')
         self.assertEqual(zot.items[key]['data']['collections'], [pending])
         digest = zot.items[result['digest_note_key']]['data']['note']
         self.assertIn(zot.select_link(key), digest)
@@ -154,7 +154,7 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(zp.ZoteroError):
             self.run_pipeline(zot)
         self.assertEqual(zot.items, {})
-        self.assertNotIn('待定', [c['name'] for c in zot.collections.values()])
+        self.assertNotIn('Pending', [c['name'] for c in zot.collections.values()])
         saved = json.loads((self.path / 'result.json').read_text())
         self.assertEqual(saved['stage'], 'digest_failed')
 
@@ -168,14 +168,14 @@ class PipelineTests(unittest.TestCase):
         result = self.run_pipeline(zot)
         key = result['papers']['2311.16922']['item_key']
         self.assertEqual(zot.items[key]['data']['collections'], ['CUSTOM01'])
-        self.assertNotIn('待定', [c['name'] for c in zot.collections.values()])
+        self.assertNotIn('Pending', [c['name'] for c in zot.collections.values()])
 
     def test_existing_no_match_uses_pending(self):
         self.cfg['classification_mode'] = 'existing'
         self.payload['papers'][0]['collection_keys'] = []
         zot = MemoryZotero()
         self.run_pipeline(zot)
-        self.assertIn('待定', [c['name'] for c in zot.collections.values()])
+        self.assertIn('Pending', [c['name'] for c in zot.collections.values()])
 
     def test_failed_paper_not_in_reading_queue_or_history(self):
         zot = MemoryZotero()
@@ -210,7 +210,7 @@ class PipelineTests(unittest.TestCase):
             zp.cmd_upsert(zot, self.cfg, args)
         result = json.loads(output.call_args.args[0])
         self.assertTrue(result['created'])
-        pending = next(k for k, c in zot.collections.items() if c['name'] == '待定')
+        pending = next(k for k, c in zot.collections.items() if c['name'] == 'Pending')
         self.assertEqual(result['collection_keys'], [pending])
         self.assertNotIn('Daily Papers', [c['name'] for c in zot.collections.values()])
 
@@ -244,6 +244,80 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(zp.note_matches(data, kind, day))
             if day:
                 self.assertFalse(zp.note_matches(data, kind, '2026-11-05'))
+
+
+    def test_english_note_titles_and_cross_language_recognition(self):
+        from unittest import mock
+        with mock.patch.object(zp, 'language', return_value='en'):
+            review = zp.identify_note('# EGDR: A paper', 'review', '2026-11-04')
+            self.assertEqual(review.splitlines()[0], '# [Daily Review] 2026-11-04 EGDR: A paper')
+            self.assertEqual(zp.identify_note(review, 'review', '2026-11-04'), review)
+            self.assertEqual(zp.identify_note('# X', 'full-note', None), '# [Deep Read] X')
+            self.assertEqual(zp.identify_note('# X', 'my-kind', None), '# [Note-my-kind] X')
+            # A Chinese note is recognized and its title rewritten in English.
+            self.assertEqual(zp.identify_note('# 【精读】X', 'full-note', None), '# [Deep Read] X')
+        for title, kind, day in (('[Daily Digest] 2026-11-04 🔪', 'digest', '2026-11-04'),
+                                 ('【每日推荐】2026-11-04 🔪', 'digest', '2026-11-04'),
+                                 ('[Quick Read] X', 'quick', None), ('【笔记-my-kind】X', 'my-kind', None)):
+            data = {'note': zp.to_note_html(f'# {title}'), 'tags': []}
+            self.assertEqual(zp.note_identity(data), ([kind], day))
+        self.assertEqual(zp.note_identity({'note': zp.to_note_html('# [Draft] X'), 'tags': []}), ([], None))
+
+
+class LanguageConfigTests(unittest.TestCase):
+    def effective(self, personal=None, **env):
+        with tempfile.TemporaryDirectory() as tmp:
+            if personal is not None:
+                (Path(tmp)/'zotero-daily-papers').mkdir()
+                (Path(tmp)/'zotero-daily-papers'/'config.json').write_text(json.dumps(personal))
+            full_env = {**os.environ, 'XDG_CONFIG_HOME': tmp, **env}
+            full_env.pop('ZDP_CONFIG', None)
+            if 'ZDP_LANGUAGE' not in env:
+                full_env.pop('ZDP_LANGUAGE', None)
+            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py')],
+                                 env=full_env, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            return json.loads(run.stdout)
+
+    def test_localized_defaults_and_overrides(self):
+        en = self.effective()
+        self.assertEqual((en['language'], en['zotero']['pending_collection']), ('en', 'Pending'))
+        self.assertEqual(en['daily_papers']['directions'][0]['name'], 'MLLM Hallucination')
+        zh = self.effective({'language': 'zh'})
+        self.assertEqual(zh['zotero']['pending_collection'], '待定')
+        self.assertEqual(zh['daily_papers']['directions'], en['daily_papers']['directions'])
+        explicit = self.effective({'language': 'zh', 'zotero': {'pending_collection': 'Inbox'}})
+        self.assertEqual(explicit['zotero']['pending_collection'], 'Inbox')
+        self.assertEqual(self.effective({'language': 'zh'}, ZDP_LANGUAGE='en')['language'], 'en')
+
+    def test_invalid_language_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py')],
+                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp, 'ZDP_LANGUAGE': 'fr'},
+                                 capture_output=True, text=True)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('language must be one of', run.stderr)
+
+    def test_init_without_lang_uses_effective_language(self):
+        for env_lang, expected in (('', 'en'), ('zh', 'zh')):
+            with tempfile.TemporaryDirectory() as tmp:
+                env = {**os.environ, 'XDG_CONFIG_HOME': tmp, 'ZDP_LANGUAGE': env_lang}
+                env.pop('ZDP_CONFIG', None)
+                run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py'), '--init'],
+                                     env=env, capture_output=True, text=True)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                path = Path(tmp)/'zotero-daily-papers'/'config.json'
+                self.assertEqual(json.loads(path.read_text())['language'], expected)
+
+    def test_set_language_preserves_other_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'zotero-daily-papers'/'config.json'
+            path.parent.mkdir()
+            path.write_text(json.dumps({'zotero': {'pending_collection': 'Inbox'}}))
+            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py'), '--set-language', 'en'],
+                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(json.loads(path.read_text()), {'zotero': {'pending_collection': 'Inbox'}, 'language': 'en'})
 
 
 class ClassificationSettingTests(unittest.TestCase):
