@@ -7,7 +7,7 @@ description: Save a given arXiv paper to the local Zotero, into Pending or a mat
 
 Let `{SKILL_DIR}` be the directory of this file and `{SHARED}` the sibling `../_zotero_shared`. Relative links are based on this file.
 First run `python3 "{SHARED}/zdp_config.py"` and `python3 "{SHARED}/zotero_push.py" check`.
-For authorization, attachment limits and troubleshooting see the [setup notes](../_zotero_shared/references/zotero-setup.md).
+For authorization, attachment limits and troubleshooting see the [setup notes](../_zotero_shared/references/zotero-setup.en.md).
 
 ## Classification setting
 

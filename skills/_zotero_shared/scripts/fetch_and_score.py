@@ -25,7 +25,7 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_zotero_shared"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from zdp_config import daily_papers_config, load_history, temp_file_path
 from agent_ranker import prepare_request

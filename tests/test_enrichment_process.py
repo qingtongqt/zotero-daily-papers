@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills/zotero-daily-papers/scripts'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skills/_zotero_shared/scripts'))
 import enrich_papers as ep
 
 

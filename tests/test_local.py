@@ -11,6 +11,17 @@ import zotero_push as zp
 
 
 class LocalTests(unittest.TestCase):
+    def test_file_uri_to_path_handles_windows_drive_letters(self):
+        self.assertEqual(zp.file_uri_to_path('file:///C:/Users/me/Papers/A%20B.pdf', windows=True),
+                         'C:/Users/me/Papers/A B.pdf')
+        self.assertEqual(zp.file_uri_to_path('file://localhost/D:/x.pdf', windows=True), 'D:/x.pdf')
+        self.assertEqual(zp.file_uri_to_path('file:///home/me/x.pdf', windows=True), '/home/me/x.pdf')
+        self.assertEqual(zp.file_uri_to_path('file:///home/me/x.pdf', windows=False), '/home/me/x.pdf')
+        self.assertEqual(zp.file_uri_to_path('file:///C:/x.pdf', windows=False), '/C:/x.pdf')
+        for bad in ('https://example.com/x.pdf', 'file://server/share/x.pdf'):
+            with self.assertRaises(zp.ZoteroError):
+                zp.file_uri_to_path(bad, windows=True)
+
     def client(self):
         z = zp.LocalZotero({}, dry_run=True)
         z.dry_run = False

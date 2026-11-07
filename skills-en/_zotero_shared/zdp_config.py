@@ -1,1 +1,0 @@
-../../skills/_zotero_shared/zdp_config.py

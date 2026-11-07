@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills/_zotero_shared"))
-sys.path.insert(0, str(ROOT / "skills/zotero-daily-papers/scripts"))
+sys.path.insert(0, str(ROOT / "skills/_zotero_shared/scripts"))
 
 from md2zotero import convert  # noqa: E402
 import zotero_push as zp  # noqa: E402

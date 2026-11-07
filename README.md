@@ -11,7 +11,7 @@ Just say "today's paper recommendations" in the agent chat and the rest happens 
 
 - **Daily recommendations**: fetch new arXiv papers and Hugging Face trending papers → filter and score by your research directions → deduplicate against your Zotero library → review each paper.
 - **Automatic saving**: save today's digest first, then the selected papers (with PDF and review child note), and finally backfill the item links in the digest.
-- **Deep-reading notes**: read the full text of must-read papers and write a note with method, formulas, main results table and key figures, saved as a child note.
+- **Deep-reading notes**: read the full text of must-read papers and write a note with method, formulas, main results table, plus explanations of key figures with links to their pages in the PDF (figures are not embedded in local mode), saved as a child note.
 - **Standalone use**: you can also just save a paper, or just deep-read a paper.
 - **Safe to rerun**: reruns deduplicate first and reuse existing items and notes instead of creating new ones; your manual collections and attachments are kept.
 - **Local first**: writes through Zotero 10's local API; no cloud API key needed, and `zotero.sqlite` is never read or written directly.
@@ -67,6 +67,7 @@ Choose **"Always Allow"** in the dialog so later runs do not ask again.
 ### 3. Install the skills
 
 The installer symlinks the three skills and the shared directory into the agent's skill directory without copying code; rerunning is safe.
+It checks that links can be created before changing anything; where they cannot (see [Windows](#windows)), use `--copy`.
 
 Choose the language with `--lang`: `en` (English, default) or `zh` (Chinese). The language decides the skill instructions, the reviews and notes the agent writes,
 the note title markers (`[Deep Read]` or `【精读】`) and the default pending collection name (`Pending` or `待定`), and is saved to your personal config.
@@ -96,6 +97,7 @@ To make the skills available only inside one project, add `--project` (defaults 
 ```bash
 python3 install.py --host claude --project ~/work/my-project    # -> my-project/.claude/skills
 python3 install.py --host codex  --project ~/work/my-project    # -> my-project/.agents/skills
+python3 install.py --host claude --project                      # -> this repository's .claude/skills (run from its root)
 ```
 
 Project installs use relative links, so they keep working when the project and this directory are moved together
@@ -103,13 +105,27 @@ Project installs use relative links, so they keep working when the project and t
 The language and personal config are still shared by all installs. For any other skill directory, use `--target <dir>`.
 
 > If you use both, run both commands. They link to the same project directory, so updating the code happens in one place.
-> To install by copying, copy the three skills and `_zotero_shared/` from `skills-en/` with `cp -rL` (to resolve the links inside) into the host skill directory, keeping the four directories side by side, then run `python3 skills/_zotero_shared/zdp_config.py --set-language en`.
+>
+> To install by copying, add `--copy` to any command above; rerun it after updating this repository.
+> To copy by hand instead, copy `skills/_zotero_shared/` and the three skills into the host skill directory, keeping the four directories side by side; for English copy `skills/<name>.en/` and drop the `.en` suffix (for Chinese copy `skills/<name>/`),
+> then set the language explicitly for **either** language: `python3 skills/_zotero_shared/zdp_config.py --set-language en` (or `zh`; without it the default is English).
 >
 > To switch an existing install to another language: `python3 install.py --target <dir> --lang zh --update`.
 >
 > Upgrading from an older version: the default language is now English. Chinese users should run `python3 install.py --target <dir> --lang zh` (or `zdp_config.py --set-language zh`); otherwise new papers go to `Pending` and new note titles are in English.
 
-If your agent does not support skill directories, ask it in the chat to read `skills-en/zotero-daily-papers/SKILL.md`.
+If your agent does not support skill directories, install with `--target <any dir>` and ask it in the chat to read `<dir>/zotero-daily-papers/SKILL.md`.
+
+#### Windows
+
+Creating symbolic links on Windows needs Developer Mode (Settings → System → For developers) or an administrator terminal.
+Without either, the installer stops before changing anything and asks you to use `--copy`:
+
+```powershell
+python install.py --host claude --copy               # copies the skills; rerun after git pull
+```
+
+The repository itself contains no symbolic links, so it works with any `core.symlinks` setting.
 
 ### 4. Set your research directions
 
@@ -245,14 +261,16 @@ In both modes, papers already in some collection keep it and are not added to "P
 | `ranking.min_score` | `2.0` | selection threshold of the agent's relevance score (0–4) |
 | `focus_bonus` | `3` | points added per focus group hit |
 
-All settings, Web API mode and troubleshooting are in [Zotero setup](skills-en/_zotero_shared/references/zotero-setup.md).
+All settings, Web API mode and troubleshooting are in [Zotero setup](skills/_zotero_shared/references/zotero-setup.en.md).
 
 ## About Attanger
 
 With Attanger installed, the script waits a few seconds after uploading a PDF and reports the PDF status:
 
-- `moved`: Attanger moved it to your file directory.
+- `moved`: Attanger moved it to your file directory (the result includes the new path).
 - `not_moved`: still in the Zotero storage directory. Right-click the attachment in Zotero → Attanger → Rename and Move.
+- `unknown`: within `attanger_wait_seconds` no PDF file was found that is either moved or still in Zotero storage (for example the download failed and only a link was attached, or the file is missing on disk); check the attachment in Zotero.
+- `skipped`: no check was made, because of Web API mode, `attach_pdf` other than `upload`, `attanger_wait_seconds` set to `0`, or `--dry-run`.
 
 If you later change a paper's collection in Zotero, run Attanger's "Rename and Move" on the PDF again afterwards.
 
@@ -285,12 +303,12 @@ python3 skills/_zotero_shared/zotero_push.py --dry-run upsert-paper --arxiv 2311
 
 ```text
 zotero-daily-papers/
-├── skills/                            # Chinese skills and all code
-│   ├── zotero-daily-papers/           # entry point, recommendation scripts and review guide
+├── skills/
+│   ├── zotero-daily-papers/           # entry point and review guide (Chinese; `.en` = English)
 │   ├── zotero-paper-save/             # single-paper saving and classification
 │   ├── zotero-paper-reader/           # reading workflow and note template
-│   └── _zotero_shared/                # Zotero scripts, default config and setup notes
-├── skills-en/                         # English skill instructions (scripts link to skills/, one shared codebase)
+│   ├── zotero-*.en/                   # English versions, installed under the same names without `.en`
+│   └── _zotero_shared/                # shared by both languages: scripts/, Zotero scripts, default config, setup notes
 ├── tests/
 └── install.py                         # skill installer (--lang zh|en)
 ```

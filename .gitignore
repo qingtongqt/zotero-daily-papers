@@ -21,3 +21,7 @@ history.json
 # Optional local task outputs
 /tmp/
 /temp/
+
+# Project-level skill installs into this checkout (install.py --host ... --project)
+/.claude/skills/
+/.agents/skills/
