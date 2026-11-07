@@ -49,7 +49,7 @@ git clone https://github.com/qingtongqt/zotero-daily-papers.git
 cd zotero-daily-papers
 ```
 
-安装器会把 Skill 复制到 Agent 的技能目录，安装后运行时不依赖本目录；保留它是为了 `git pull` 更新后重新安装。
+安装器会把 Skill 复制到 Agent 的技能目录，运行时不依赖本目录；保留它只是为了以后 `git pull` 更新后重新安装。
 
 ### 2. 开启 Zotero 本机 API
 
@@ -66,77 +66,29 @@ python3 skills/_zotero_shared/zotero_push.py authorize   # Zotero 会弹出授�
 
 ### 3. 安装 Skill
 
-安装器把三个 Skill 和共享目录**复制**到 Agent 的技能目录，不使用符号链接，Windows 也无需开发者模式或管理员权限。
-重复运行是安全的：只会覆盖之前由安装器复制的目录。更新本仓库（`git pull`）后，重新运行同一条安装命令即可更新已安装的 Skill。
-
-用 `--lang` 选择语言：`en`（英文，默认）或 `zh`（中文）。语言决定 Skill 说明、Agent 写的点评/笔记、
-笔记标题标识（`【精读】` 或 `[Deep Read]`）和默认的「待定」分类名（`待定` 或 `Pending`），并写入个人配置。
-
-**Claude Code**
-
 ```bash
-python3 install.py --host claude --lang zh    # 中文，安装到 ~/.claude/skills
-python3 install.py --host claude              # English（默认）
+python3 install.py --host claude --lang zh             # 用户级：~/.claude/skills
+python3 install.py --host codex --lang zh              # 用户级：~/.agents/skills
+python3 install.py --host claude --project --lang zh   # 项目级：当前目录/.claude/skills
+python3 install.py --host codex --project ~/work/my-project --lang zh   # 项目级：指定项目目录
 ```
 
-安装后在当前会话中即可使用。可以直接用自然语言触发，也可以输入 `/zotero-daily-papers` 手动调用。
+- `--host`：为哪个 Agent 安装，`claude` 或 `codex`。
+- `--project [目录]`：项目级安装，只在该项目中可用；不写目录时为当前目录。不加则为用户级安装。
+- `--lang`：`en`（英文，默认）或 `zh`（中文）。决定 Skill 说明、Agent 写的点评/笔记、笔记标题标识（`【精读】` 或 `[Deep Read]`）和默认的「待定」分类名（`待定` 或 `Pending`）。
 
-**Codex**
+安装器把三个 Skill 和共享目录 `_zotero_shared` 复制到目标位置。每个安装位置都有自己的配置文件
+`_zotero_shared/config.json`（安装时写入语言），互不影响。重复运行同一条命令会更新代码并保留该配置；
+切换语言时加 `--update`。在 Windows 上把 `python3` 换成 `python` 即可。
 
-```bash
-python3 install.py --host codex --lang zh     # 安装到 ~/.agents/skills；不加 --lang 则安装英文版
-```
-
-安装后如果 Skill 没有出现，重启 Codex。可以直接用自然语言触发，也可以输入 `$zotero-daily-papers`
-或通过 `/skills` 选择调用。较旧版本的 Codex 使用 `~/.codex/skills` 目录。
-
-**项目级安装**
-
-如果只想在某个项目里使用这些 Skill，加上 `--project`（不写目录时默认为当前目录）：
-
-```bash
-python3 install.py --host claude --project ~/work/my-project --lang zh    # -> my-project/.claude/skills
-python3 install.py --host codex  --project ~/work/my-project --lang zh    # -> my-project/.agents/skills
-python3 install.py --host claude --project --lang zh                      # -> 本仓库的 .claude/skills（在仓库根目录运行）
-```
-
-语言和个人配置仍由所有安装共用。要装到其他技能目录，用 `--target <目录>`。
-
-> 两个都用的话，两条命令各运行一次即可；更新本仓库后，对每个安装位置重新运行对应命令。
->
-> 切换已安装的语言：在原安装命令后加 `--update`，例如 `python3 install.py --host claude --lang zh --update`。
->
-> 也可以手动复制：把 `skills/_zotero_shared/` 和三个 Skill 复制到宿主技能目录，保持四个目录同级；中文复制 `skills/<名称>/`，英文复制 `skills/<名称>.en/` 并去掉 `.en` 后缀，
-> 然后**无论中英文**都要显式设置语言：`python3 skills/_zotero_shared/zdp_config.py --set-language zh`（英文用 `en`；不设置时默认为英文）。
-> 手动复制的目录没有安装标记，之后不能用安装器更新（见下方升级说明）。
-
-**从旧版本升级**
-
-- **旧版安装器（符号链接）安装的**：直接重新运行安装命令即可，链接会被替换成复制的文件。中文用户记得加 `--lang zh`。
-- **手动复制安装的**：这些目录没有安装标记，安装器不会覆盖它们，会报 `Refusing to replace existing path`。
-  先把技能目录（如 `~/.agents/skills`）里的 `zotero-daily-papers`、`zotero-paper-save`、`zotero-paper-reader`、`_zotero_shared` 四个目录备份并移走，再重新安装。
-- **配置默认语言现为英文**：中文用户用 `--lang zh` 安装（会写入个人配置），或运行 `python3 skills/_zotero_shared/zdp_config.py --set-language zh`，否则新论文会进入 `Pending` 分类、笔记标题变为英文。
-
-如果你的 Agent 不支持 Skill 目录，可以用 `--target <任意目录>` 安装，再在对话里让它读取 `<目录>/zotero-daily-papers/SKILL.md`。
-
-#### Windows
-
-安装器只复制文件，不需要开发者模式或管理员权限；仓库本身也不包含符号链接，`core.symlinks` 为任何值都能正常检出。
-命令中的 `python3` 在 Windows 上通常写作 `python` 或 `py`：
-
-```powershell
-python install.py --host claude --lang zh
-```
+Claude Code 安装后在当前会话中即可使用，可以直接用自然语言触发，也可以输入 `/zotero-daily-papers`。
+Codex 安装后如果 Skill 没有出现，重启 Codex；可以用自然语言触发，或输入 `$zotero-daily-papers`、通过 `/skills` 选择。
 
 ### 4. 设置研究方向
 
-默认配置面向三个方向：多模态大模型幻觉（`MLLM Hallucination`）、大模型后训练（`LLM Post-training`）、大模型架构（`LLM Architecture`）。默认配置全部为英文，方向名会原样出现在点评、笔记和标签中；要换成你自己的方向（可以用中文命名），先创建个人配置：
-
-```bash
-python3 skills/_zotero_shared/zdp_config.py --init
-```
-
-然后编辑 `~/.config/zotero-daily-papers/config.json`，见下文[研究方向](#研究方向)。
+默认配置面向三个方向：多模态大模型幻觉（`MLLM Hallucination`）、大模型后训练（`LLM Post-training`）、大模型架构（`LLM Architecture`）。
+方向名会原样出现在点评、笔记和标签中。要换成你自己的方向（可以用中文命名），编辑安装位置的配置文件，
+例如 `~/.claude/skills/_zotero_shared/config.json`，见下文[研究方向](#研究方向)。
 
 ### 5. 开始使用
 
@@ -165,10 +117,12 @@ python3 skills/_zotero_shared/zdp_config.py --init
 ## 配置
 
 默认配置在 [`config.default.json`](skills/_zotero_shared/config.default.json)，不要直接修改它。
-个人设置写在 `~/.config/zotero-daily-papers/config.json`，只需写要覆盖的键：
+你的设置写在安装位置的 `_zotero_shared/config.json`（例如 `~/.claude/skills/_zotero_shared/config.json`），
+每个安装位置一份，只需写要覆盖的键。重新运行安装命令不会覆盖它。
 
 ```json
 {
+  "language": "zh",
   "zotero": {
     "classification_mode": "pending",
     "attach_pdf": "upload"
@@ -180,10 +134,10 @@ python3 skills/_zotero_shared/zdp_config.py --init
 ```
 
 合并规则：对象逐层合并；列表（如 `directions`）整体替换。
-查看实际生效的配置：
+查看实际生效的配置（以下命令都针对该安装位置）：
 
 ```bash
-python3 skills/_zotero_shared/zdp_config.py
+python3 ~/.claude/skills/_zotero_shared/zdp_config.py
 ```
 
 ### 研究方向
@@ -233,7 +187,7 @@ python3 skills/_zotero_shared/zdp_config.py
 | `existing` | Agent 读取你已有的分类结构，按论文内容匹配最合适的分类；找不到合适的才放入「待定」 |
 
 ```bash
-python3 skills/_zotero_shared/zdp_config.py --set-classification existing
+python3 ~/.claude/skills/_zotero_shared/zdp_config.py --set-classification existing
 ```
 
 两种模式下，已经在某个分类里的论文都会保留原分类，不会被额外加进「待定」。
@@ -315,7 +269,7 @@ zotero-daily-papers/
 
 ## 数据与隐私
 
-- 个人配置、本地授权和缓存保存在 `~/.config/zotero-daily-papers/`（授权文件权限为 600）。
+- 设置保存在各安装位置的 `_zotero_shared/config.json`；本地授权、缓存和推荐历史保存在 `~/.config/zotero-daily-papers/`，由所有安装共用（授权文件权限为 600）。
 - 中间文件写入系统临时目录，可用环境变量 `ZDP_TEMP_DIR` 指定。
 - 抓取访问 arXiv 和 Hugging Face Daily/Trending API；富化访问 arXiv 页面与 PDF，本机入库访问 localhost。
 - 使用 Web API 模式时还会访问 Zotero 云端及其返回的文件上传地址；该模式嵌入图片时也会访问笔记中的图片 URL。

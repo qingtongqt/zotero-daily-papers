@@ -14,7 +14,7 @@
 群组库需 `library_type: "group"` 和群组 `library_id`，且必须有编辑权限。
 程序不读写 `zotero.sqlite`，不改动 Attanger 设置，也不直接移动附件。
 
-本地授权按 Zotero Server ID 隔离，以权限 600 保存在个人配置目录的 `local-auth-*.json`。
+本地授权按 Zotero Server ID 隔离，以权限 600 保存在 `~/.config/zotero-daily-papers/local-auth-*.json`，由所有安装共用。
 可在 Zotero 高级设置清除写授权。缓存与云端分开，避免混用本地/云端版本号。
 `--dry-run` 不连接 Zotero、不弹授权、不下载 PDF、不改库；单篇入库预览仍会获取 arXiv 元数据。
 
@@ -41,7 +41,7 @@ pending 模式只把**未归类**的论文放进「待定」；已在任意分�
 
 ## 可调配置
 
-个人覆盖：`~/.config/zotero-daily-papers/config.json`（`ZDP_CONFIG` 可指定其他文件）。
+本安装的设置：`{SHARED}/config.json`（每个安装位置一份，重新安装不会覆盖；`ZDP_CONFIG` 可再叠加一个文件）。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -92,5 +92,5 @@ Web 模式上传文件使用 Zotero 云端存储，无法读取本地 linked fil
 
 `python3 "{SHARED}/zdp_config.py" --set-language zh`（或 `en`）设置新笔记和本地化默认值的语言；
 `python3 "{SHARED}/zdp_config.py" --set-classification pending` 或 `--set-classification existing` 设置分类模式。
-命令只修改个人配置中的对应键，保留其余设置。通过 `zdp_config.py` 确认实际生效值；
+命令只修改 `{SHARED}/config.json` 中的对应键，保留其余设置。通过 `zdp_config.py` 确认实际生效值；
 如使用 ZDP_CONFIG，需同时检查该文件覆盖值。非法模式会报错，不静默退回默认模式。

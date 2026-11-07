@@ -3,7 +3,7 @@
 
 Merge order (later wins):
   1. _zotero_shared/config.default.json
-  2. ~/.config/zotero-daily-papers/config.json   (XDG_CONFIG_HOME respected)
+  2. _zotero_shared/config.json   (this install's own settings; each install has one)
   3. the JSON file named by ZDP_CONFIG
   4. env: ZOTERO_API_KEY, ZOTERO_LIBRARY_ID, ZOTERO_LIBRARY_TYPE
 
@@ -11,8 +11,11 @@ Merge order (later wins):
 With "zh" the default pending collection is named "待定" instead of "Pending"; an explicitly
 configured pending_collection always wins.
 
+Zotero authorization, caches and recommendation history are not settings; they live in
+~/.config/zotero-daily-papers/ (XDG_CONFIG_HOME respected) and are shared by all installs.
+
 Run directly to print the effective config (API key masked) and runtime paths.
-`--init` writes a personal config template once and never overwrites it.
+`--init` writes a config template once and never overwrites it.
 """
 
 from __future__ import annotations
@@ -35,12 +38,14 @@ LOCALIZED_DEFAULTS = {"zh": {"zotero": {"pending_collection": "待定"}}}
 
 
 def config_home() -> Path:
+    """Data shared by all installs: Zotero authorization, caches and recommendation history."""
     root = Path(os.environ.get("XDG_CONFIG_HOME") or "~/.config").expanduser()
     return root / "zotero-daily-papers"
 
 
 def personal_config_path() -> Path:
-    return config_home() / "config.json"
+    """This install's settings, kept next to the code (the installer preserves it on update)."""
+    return SHARED_DIR / "config.json"
 
 
 def history_path() -> Path:
@@ -218,11 +223,11 @@ def personal_template(lang: str = "en") -> dict:
 
 
 def update_personal_config(change) -> Path:
-    """Apply `change(config)` to the personal config atomically, keeping every other setting."""
+    """Apply `change(config)` to this install's config atomically, keeping every other setting."""
     path = personal_config_path()
     config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if not isinstance(config, dict) or not isinstance(config.get("zotero", {}), dict):
-        raise ValueError("Personal configuration must contain a zotero object")
+        raise ValueError("Configuration must contain a zotero object")
     change(config)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".json.tmp")
@@ -242,13 +247,13 @@ def set_language(lang: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--init", action="store_true", help="Create the personal config template if absent")
+    parser.add_argument("--init", action="store_true", help="Create this install's config template if absent")
     parser.add_argument("--lang", choices=LANGUAGES,
                         help="With --init: template language (default: current language)")
     parser.add_argument("--set-language", choices=LANGUAGES,
-                        help="Set personal language for generated notes and localized defaults")
+                        help="Set the language of generated notes and localized defaults")
     parser.add_argument("--set-classification", choices=("pending", "existing"),
-                        help="Set personal default: pending collection or match existing collections")
+                        help="Set the default: pending collection or match existing collections")
     args = parser.parse_args()
     if args.set_language:
         path = set_language(args.set_language)
@@ -270,7 +275,7 @@ def main() -> None:
                 json.dump(template, stream, ensure_ascii=False, indent=2)
                 stream.write("\n")
             os.chmod(path, 0o600)
-            print(f"Created personal configuration: {path}")
+            print(f"Created configuration: {path}")
         except FileExistsError:
             print(f"Existing configuration preserved: {path}")
         return
@@ -284,7 +289,8 @@ def main() -> None:
         "project_root": str(PROJECT_ROOT),
         "skill_dir": str(PROJECT_ROOT),  # Compatibility for older callers.
         "temp_dir": str(temp_dir()),
-        "personal_config": str(personal_config_path()),
+        "config": str(personal_config_path()),
+        "data_dir": str(config_home()),
         "history": str(history_path()),
     }
     print(json.dumps(config, ensure_ascii=False, indent=2))

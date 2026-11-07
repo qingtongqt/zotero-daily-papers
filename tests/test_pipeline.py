@@ -264,18 +264,30 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(zp.note_identity({'note': zp.to_note_html('# [Draft] X'), 'tags': []}), ([], None))
 
 
+def installed_shared(tmp: str, config: dict | None = None) -> Path:
+    """A copy of _zotero_shared as an install has it, optionally with its own config.json."""
+    import shutil
+    shared = Path(tmp) / '_zotero_shared'
+    shutil.copytree(ROOT / 'skills/_zotero_shared', shared,
+                    ignore=shutil.ignore_patterns('__pycache__', 'config.json'))
+    if config is not None:
+        (shared / 'config.json').write_text(json.dumps(config), encoding='utf-8')
+    return shared
+
+
+def run_config(shared: Path, *args, **env):
+    full_env = {**os.environ, 'XDG_CONFIG_HOME': str(shared.parent), **env}
+    full_env.pop('ZDP_CONFIG', None)
+    if 'ZDP_LANGUAGE' not in env:
+        full_env.pop('ZDP_LANGUAGE', None)
+    return subprocess.run([sys.executable, str(shared / 'zdp_config.py'), *args],
+                          env=full_env, capture_output=True, text=True)
+
+
 class LanguageConfigTests(unittest.TestCase):
-    def effective(self, personal=None, **env):
+    def effective(self, config=None, **env):
         with tempfile.TemporaryDirectory() as tmp:
-            if personal is not None:
-                (Path(tmp)/'zotero-daily-papers').mkdir()
-                (Path(tmp)/'zotero-daily-papers'/'config.json').write_text(json.dumps(personal))
-            full_env = {**os.environ, 'XDG_CONFIG_HOME': tmp, **env}
-            full_env.pop('ZDP_CONFIG', None)
-            if 'ZDP_LANGUAGE' not in env:
-                full_env.pop('ZDP_LANGUAGE', None)
-            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py')],
-                                 env=full_env, capture_output=True, text=True)
+            run = run_config(installed_shared(tmp, config), **env)
             self.assertEqual(run.returncode, 0, run.stderr)
             return json.loads(run.stdout)
 
@@ -290,34 +302,34 @@ class LanguageConfigTests(unittest.TestCase):
         self.assertEqual(explicit['zotero']['pending_collection'], 'Inbox')
         self.assertEqual(self.effective({'language': 'zh'}, ZDP_LANGUAGE='en')['language'], 'en')
 
+    def test_config_lives_in_the_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = installed_shared(tmp, {'language': 'zh'})
+            result = json.loads(run_config(shared).stdout)
+            self.assertEqual(result['runtime']['config'], str(shared.resolve() / 'config.json'))
+            self.assertEqual(result['language'], 'zh')
+
     def test_invalid_language_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
-            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py')],
-                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp, 'ZDP_LANGUAGE': 'fr'},
-                                 capture_output=True, text=True)
+            run = run_config(installed_shared(tmp), ZDP_LANGUAGE='fr')
             self.assertNotEqual(run.returncode, 0)
             self.assertIn('language must be one of', run.stderr)
 
     def test_init_without_lang_uses_effective_language(self):
         for env_lang, expected in (('', 'en'), ('zh', 'zh')):
             with tempfile.TemporaryDirectory() as tmp:
-                env = {**os.environ, 'XDG_CONFIG_HOME': tmp, 'ZDP_LANGUAGE': env_lang}
-                env.pop('ZDP_CONFIG', None)
-                run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py'), '--init'],
-                                     env=env, capture_output=True, text=True)
+                shared = installed_shared(tmp)
+                run = run_config(shared, '--init', ZDP_LANGUAGE=env_lang)
                 self.assertEqual(run.returncode, 0, run.stderr)
-                path = Path(tmp)/'zotero-daily-papers'/'config.json'
-                self.assertEqual(json.loads(path.read_text())['language'], expected)
+                self.assertEqual(json.loads((shared / 'config.json').read_text())['language'], expected)
 
     def test_set_language_preserves_other_options(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp)/'zotero-daily-papers'/'config.json'
-            path.parent.mkdir()
-            path.write_text(json.dumps({'zotero': {'pending_collection': 'Inbox'}}))
-            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py'), '--set-language', 'en'],
-                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
+            shared = installed_shared(tmp, {'zotero': {'pending_collection': 'Inbox'}})
+            run = run_config(shared, '--set-language', 'en')
             self.assertEqual(run.returncode, 0, run.stderr)
-            self.assertEqual(json.loads(path.read_text()), {'zotero': {'pending_collection': 'Inbox'}, 'language': 'en'})
+            self.assertEqual(json.loads((shared / 'config.json').read_text()),
+                             {'zotero': {'pending_collection': 'Inbox'}, 'language': 'en'})
 
 
 class ClassificationSettingTests(unittest.TestCase):
@@ -327,15 +339,12 @@ class ClassificationSettingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             classification_mode({'classification_mode': 'typo'})
 
-    def test_setting_preserves_other_personal_options(self):
+    def test_setting_preserves_other_options(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp)/'zotero-daily-papers'/'config.json'
-            path.parent.mkdir()
-            path.write_text(json.dumps({'zotero': {'pending_collection': 'Inbox'}, 'daily_papers': {'top_n': 4}}))
-            run = subprocess.run([sys.executable, str(ROOT/'skills/_zotero_shared/zdp_config.py'), '--set-classification', 'existing'],
-                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
+            shared = installed_shared(tmp, {'zotero': {'pending_collection': 'Inbox'}, 'daily_papers': {'top_n': 4}})
+            run = run_config(shared, '--set-classification', 'existing')
             self.assertEqual(run.returncode, 0, run.stderr)
-            result = json.loads(path.read_text())
+            result = json.loads((shared / 'config.json').read_text())
             self.assertEqual(result['zotero']['classification_mode'], 'existing')
             self.assertEqual(result['zotero']['pending_collection'], 'Inbox')
             self.assertEqual(result['daily_papers']['top_n'], 4)

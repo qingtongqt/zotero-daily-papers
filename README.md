@@ -49,7 +49,7 @@ git clone https://github.com/qingtongqt/zotero-daily-papers.git
 cd zotero-daily-papers
 ```
 
-The installer copies the skills into the agent's skill directory, so installed skills do not depend on this directory at run time; keep it to update with `git pull` and reinstall.
+The installer copies the skills into the agent's skill directory, so they do not depend on this directory at run time; keep it only to `git pull` updates and reinstall.
 
 ### 2. Enable the Zotero local API
 
@@ -66,77 +66,28 @@ Choose **"Always Allow"** in the dialog so later runs do not ask again.
 
 ### 3. Install the skills
 
-The installer **copies** the three skills and the shared directory into the agent's skill directory. It uses no symbolic links, so Windows needs no Developer Mode or administrator rights.
-Rerunning is safe: it only replaces directories the installer copied before. After updating this repository (`git pull`), rerun the same install command to update the installed skills.
-
-Choose the language with `--lang`: `en` (English, default) or `zh` (Chinese). The language decides the skill instructions, the reviews and notes the agent writes,
-the note title markers (`[Deep Read]` or `【精读】`) and the default pending collection name (`Pending` or `待定`), and is saved to your personal config.
-
-**Claude Code**
-
 ```bash
-python3 install.py --host claude              # English, into ~/.claude/skills
-python3 install.py --host claude --lang zh    # 中文
+python3 install.py --host claude                        # user level: ~/.claude/skills
+python3 install.py --host codex                         # user level: ~/.agents/skills
+python3 install.py --host claude --project              # project level: ./.claude/skills
+python3 install.py --host codex --project ~/work/my-project   # project level: a given project
 ```
 
-The skills are available in the current session. Trigger them in natural language, or call `/zotero-daily-papers` manually.
+- `--host`: the agent to install for, `claude` or `codex`.
+- `--project [DIR]`: project-level install, available only in that project; without `DIR` it is the current directory. Without `--project` the install is user level.
+- `--lang`: `en` (English, default) or `zh` (Chinese). It decides the skill instructions, the reviews and notes the agent writes, the note title markers (`[Deep Read]` or `【精读】`) and the default pending collection name (`Pending` or `待定`).
 
-**Codex**
+The installer copies the three skills and the shared `_zotero_shared` directory to the destination. Each install has its own config file,
+`_zotero_shared/config.json` (the language is written there), independent of the others. Rerunning the same command updates the code and keeps that config;
+add `--update` to switch the language. On Windows, use `python` instead of `python3`.
 
-```bash
-python3 install.py --host codex               # into ~/.agents/skills; add --lang zh for Chinese
-```
-
-Restart Codex if the skills do not show up. Trigger them in natural language, call `$zotero-daily-papers`,
-or pick it via `/skills`. Older Codex versions use the `~/.codex/skills` directory.
-
-**Project-level install**
-
-To make the skills available only inside one project, add `--project` (defaults to the current directory):
-
-```bash
-python3 install.py --host claude --project ~/work/my-project    # -> my-project/.claude/skills
-python3 install.py --host codex  --project ~/work/my-project    # -> my-project/.agents/skills
-python3 install.py --host claude --project                      # -> this repository's .claude/skills (run from its root)
-```
-
-The language and personal config are still shared by all installs. For any other skill directory, use `--target <dir>`.
-
-> If you use both, run both commands; after updating this repository, rerun the command for each install location.
->
-> To switch an existing install to another language, add `--update` to its install command, e.g. `python3 install.py --host claude --lang zh --update`.
->
-> To copy by hand instead, copy `skills/_zotero_shared/` and the three skills into the host skill directory, keeping the four directories side by side; for English copy `skills/<name>.en/` and drop the `.en` suffix (for Chinese copy `skills/<name>/`),
-> then set the language explicitly for **either** language: `python3 skills/_zotero_shared/zdp_config.py --set-language en` (or `zh`; without it the default is English).
-> Manually copied directories carry no install marker, so the installer cannot update them later (see the upgrade notes below).
-
-**Upgrading from an older version**
-
-- **Installed by the old (symlink) installer**: just rerun the install command; the links are replaced by copies. Chinese users should keep `--lang zh`.
-- **Installed by copying manually**: those directories carry no install marker, so the installer will not replace them and reports `Refusing to replace existing path`.
-  Back up and move away the four directories `zotero-daily-papers`, `zotero-paper-save`, `zotero-paper-reader` and `_zotero_shared` from the skill directory (e.g. `~/.agents/skills`), then install again.
-- **The default language is now English**: Chinese users should install with `--lang zh` (it is saved to the personal config) or run `python3 skills/_zotero_shared/zdp_config.py --set-language zh`; otherwise new papers go to `Pending` and new note titles are in English.
-
-If your agent does not support skill directories, install with `--target <any dir>` and ask it in the chat to read `<dir>/zotero-daily-papers/SKILL.md`.
-
-#### Windows
-
-The installer only copies files, so it needs no Developer Mode or administrator rights; the repository contains no symbolic links either, so any `core.symlinks` setting works.
-On Windows, `python3` in the commands is usually `python` or `py`:
-
-```powershell
-python install.py --host claude
-```
+In Claude Code the skills are available in the current session; trigger them in natural language or with `/zotero-daily-papers`.
+In Codex, restart if the skills do not show up; trigger them in natural language, with `$zotero-daily-papers`, or via `/skills`.
 
 ### 4. Set your research directions
 
-The default config targets three directions: MLLM hallucination, LLM post-training and LLM architecture. To use your own, create a personal config:
-
-```bash
-python3 skills/_zotero_shared/zdp_config.py --init
-```
-
-Then edit `~/.config/zotero-daily-papers/config.json`; see [Research directions](#research-directions) below.
+The default config targets three directions: MLLM hallucination, LLM post-training and LLM architecture.
+To use your own, edit the config file of the install, for example `~/.claude/skills/_zotero_shared/config.json`; see [Research directions](#research-directions) below.
 
 ### 5. Use it
 
@@ -165,7 +116,8 @@ Do not remove these markers, or reruns cannot recognize existing notes. Chinese 
 ## Configuration
 
 The defaults live in [`config.default.json`](skills/_zotero_shared/config.default.json); do not edit it directly.
-Personal settings go in `~/.config/zotero-daily-papers/config.json`, containing only the keys you override:
+Your settings go in the install's `_zotero_shared/config.json` (for example `~/.claude/skills/_zotero_shared/config.json`),
+one per install, containing only the keys you override. Rerunning the installer never overwrites it.
 
 ```json
 {
@@ -181,10 +133,10 @@ Personal settings go in `~/.config/zotero-daily-papers/config.json`, containing 
 ```
 
 Merge rule: objects merge recursively; lists (such as `directions`) are replaced as a whole.
-Show the effective config:
+Show the effective config (these commands act on that install):
 
 ```bash
-python3 skills/_zotero_shared/zdp_config.py
+python3 ~/.claude/skills/_zotero_shared/zdp_config.py
 ```
 
 ### Research directions
@@ -234,7 +186,7 @@ There are two modes for which Zotero collection a paper goes to:
 | `existing` | the agent reads your collection structure and matches the best collection by content; only papers without a match go to "Pending" |
 
 ```bash
-python3 skills/_zotero_shared/zdp_config.py --set-classification existing
+python3 ~/.claude/skills/_zotero_shared/zdp_config.py --set-classification existing
 ```
 
 In both modes, papers already in some collection keep it and are not added to "Pending".
@@ -316,7 +268,7 @@ zotero-daily-papers/
 
 ## Data and privacy
 
-- Personal config, local authorization and caches are stored in `~/.config/zotero-daily-papers/` (authorization files have permission 600).
+- Settings are stored per install in `_zotero_shared/config.json`; local authorization, caches and recommendation history are stored in `~/.config/zotero-daily-papers/` and shared by all installs (authorization files have permission 600).
 - Intermediate files go to the system temp directory; set `ZDP_TEMP_DIR` to choose another.
 - Fetching accesses arXiv and the Hugging Face Daily/Trending APIs; enrichment accesses arXiv pages and PDFs; local saving accesses localhost.
 - Web API mode also accesses the Zotero cloud and the file upload URLs it returns; embedding images in that mode also accesses the image URLs in notes.
