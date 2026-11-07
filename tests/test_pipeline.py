@@ -280,17 +280,17 @@ class LanguageConfigTests(unittest.TestCase):
             return json.loads(run.stdout)
 
     def test_localized_defaults_and_overrides(self):
-        zh = self.effective()
-        self.assertEqual((zh['language'], zh['zotero']['pending_collection']), ('zh', '待定'))
-        self.assertEqual(zh['daily_papers']['directions'][0]['name'], '多模态大模型幻觉')
-        self.assertNotIn('locales', zh)
-        self.assertNotIn('name_en', zh['daily_papers']['directions'][0])
-        en = self.effective({'language': 'en'})
-        self.assertEqual(en['zotero']['pending_collection'], 'Pending')
+        en = self.effective()
+        self.assertEqual((en['language'], en['zotero']['pending_collection']), ('en', 'Pending'))
         self.assertEqual(en['daily_papers']['directions'][0]['name'], 'MLLM Hallucination')
-        explicit = self.effective({'language': 'en', 'zotero': {'pending_collection': '待定'}})
-        self.assertEqual(explicit['zotero']['pending_collection'], '待定')
-        self.assertEqual(self.effective({'language': 'en'}, ZDP_LANGUAGE='zh')['language'], 'zh')
+        self.assertNotIn('locales', en)
+        self.assertNotIn('name_zh', en['daily_papers']['directions'][0])
+        zh = self.effective({'language': 'zh'})
+        self.assertEqual(zh['zotero']['pending_collection'], '待定')
+        self.assertEqual(zh['daily_papers']['directions'][0]['name'], '多模态大模型幻觉')
+        explicit = self.effective({'language': 'zh', 'zotero': {'pending_collection': 'Inbox'}})
+        self.assertEqual(explicit['zotero']['pending_collection'], 'Inbox')
+        self.assertEqual(self.effective({'language': 'zh'}, ZDP_LANGUAGE='en')['language'], 'en')
 
     def test_invalid_language_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

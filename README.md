@@ -93,6 +93,8 @@ or pick it via `/skills`. Older Codex versions use the `~/.codex/skills` directo
 > To install by copying, copy the three skills and `_zotero_shared/` from `skills-en/` with `cp -rL` (to resolve the links inside) into the host skill directory, keeping the four directories side by side, then run `python3 skills/_zotero_shared/zdp_config.py --set-language en`.
 >
 > To switch an existing install to another language: `python3 install.py --target <dir> --lang zh --update`.
+>
+> Upgrading from an older version: the default language is now English. Chinese users should run `python3 install.py --target <dir> --lang zh` (or `zdp_config.py --set-language zh`); otherwise new papers go to `Pending` and new note titles are in English.
 
 If your agent does not support skill directories, ask it in the chat to read `skills-en/zotero-daily-papers/SKILL.md`.
 
@@ -211,7 +213,7 @@ In both modes, papers already in some collection keep it and are not added to "P
 
 | Key (top level) | Default | Description |
 |---|---|---|
-| `language` | `zh` | `zh` or `en`; set by `install.py --lang`, or change with `zdp_config.py --set-language` |
+| `language` | `en` | `en` or `zh`; set by `install.py --lang`, or change with `zdp_config.py --set-language` |
 
 | Key (`zotero` section) | Default | Description |
 |---|---|---|

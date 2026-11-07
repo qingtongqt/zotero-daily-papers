@@ -8,9 +8,8 @@ Merge order (later wins):
   4. env: ZOTERO_API_KEY, ZOTERO_LIBRARY_ID, ZOTERO_LIBRARY_TYPE
 
 `language` ("zh" or "en", env ZDP_LANGUAGE) picks the language of generated notes and
-localized defaults: for a non-default language, `locales.<lang>` of the default file is merged
-over the defaults (and default direction names take their `name_<lang>`) before personal
-overrides apply, so explicitly configured values always win.
+localized defaults: `locales.<lang>` of the default file is merged over the (English) defaults,
+and default direction names take their `name_<lang>`, before personal overrides apply, so explicitly configured values always win.
 
 Run directly to print the effective config (API key masked) and runtime paths.
 `--init` writes a personal config template once and never overwrites it.
@@ -80,14 +79,13 @@ def load_config() -> dict:
                 raise ValueError(f"Configuration must be a JSON object: {path}")
             overrides.append(loaded)
     # The language is resolved first so localized defaults sit below every personal override.
-    language = config.get("language", "zh")
+    language = config.get("language", "en")
     for loaded in overrides:
         language = loaded.get("language", language)
     language = validate_language(os.environ.get("ZDP_LANGUAGE", "").strip() or language)
-    if language != "zh":
-        _deep_merge(config, copy.deepcopy(locales.get(language, {})))
-        for direction in config["daily_papers"].get("directions", []):
-            direction["name"] = direction.get(f"name_{language}", direction["name"])
+    _deep_merge(config, copy.deepcopy(locales.get(language, {})))
+    for direction in config["daily_papers"].get("directions", []):
+        direction["name"] = direction.get(f"name_{language}", direction["name"])
     for direction in config["daily_papers"].get("directions", []):
         for key in [k for k in direction if k.startswith("name_")]:
             del direction[key]
@@ -206,7 +204,7 @@ def save_history(entries: list[dict]) -> None:
     tmp.replace(path)
 
 
-def personal_template(lang: str = "zh") -> dict:
+def personal_template(lang: str = "en") -> dict:
     return {
         "language": lang,
         "zotero": {

@@ -45,7 +45,7 @@ Personal overrides: `~/.config/zotero-daily-papers/config.json` (`ZDP_CONFIG` ca
 
 | Key | Default | Description |
 |---|---|---|
-| language | zh | `zh` / `en`: language of generated note titles and localized defaults; env ZDP_LANGUAGE overrides |
+| language | en | `en` / `zh`: language of generated note titles and localized defaults; env ZDP_LANGUAGE overrides |
 
 | Key (zotero section) | Default | Description |
 |---|---|---|

@@ -398,7 +398,7 @@ def select_collections(zot: Zotero, cfg: dict, selected: list[str], catalog: lis
         raise ZoteroError(f"Unknown/deleted collection keys: {', '.join(sorted(unknown))}; read collections again")
     if selected:
         return list(dict.fromkeys(selected))
-    name = cfg.get("pending_collection", "待定")
+    name = cfg.get("pending_collection", "Pending")
     pending = next((c for c in catalog if c["name"] == name and not c["parent"]), None)
     if pending:
         return [pending["key"]]

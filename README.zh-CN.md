@@ -93,6 +93,8 @@ python3 install.py --target ~/.agents/skills --lang zh    # 不加 --lang 则安
 > 如需复制安装，把 `skills/`（英文版为 `skills-en/`，需 `cp -rL` 展开其中的链接）下的三个 Skill 和 `_zotero_shared/` 一起复制到宿主技能目录，保持四个目录同级；英文版再运行 `python3 skills/_zotero_shared/zdp_config.py --set-language en`。
 >
 > 切换已安装的语言：`python3 install.py --target <目录> --lang zh --update`。
+>
+> 从旧版本升级：配置默认语言现为英文，中文用户请运行 `python3 install.py --target <目录> --lang zh` 或 `python3 skills/_zotero_shared/zdp_config.py --set-language zh`，否则新论文会进入 `Pending` 分类、笔记标题变为英文。
 
 如果你的 Agent 不支持 Skill 目录，也可以直接在对话里让它读取 `skills/zotero-daily-papers/SKILL.md`。
 
@@ -210,7 +212,7 @@ python3 skills/_zotero_shared/zdp_config.py --set-classification existing
 
 | 键（顶层） | 默认值 | 说明 |
 |---|---|---|
-| `language` | `zh` | `zh` 或 `en`，由 `install.py --lang` 设置，也可用 `zdp_config.py --set-language` 修改 |
+| `language` | `en` | `en` 或 `zh`，由 `install.py --lang` 设置，也可用 `zdp_config.py --set-language` 修改 |
 
 | 键（`zotero` 节） | 默认值 | 说明 |
 |---|---|---|

@@ -1,5 +1,5 @@
 {
-  "language": "zh",
+  "language": "en",
   "zotero": {
     "backend": "local",
     "local_url": "http://127.0.0.1:23119",
@@ -7,7 +7,7 @@
     "library_id": "",
     "api_key": "",
     "root_collection": "Daily Papers",
-    "pending_collection": "待定",
+    "pending_collection": "Pending",
     "classification_mode": "pending",
     "write_tiers": [
       "must",
@@ -21,8 +21,8 @@
     "directions": [
       {
         "id": "mllm-hallucination",
-        "name": "多模态大模型幻觉",
-        "name_en": "MLLM Hallucination",
+        "name": "MLLM Hallucination",
+        "name_zh": "多模态大模型幻觉",
         "keywords": [
           ["hallucination", "hallucinations", "hallucinate", "object hallucination", "visual hallucination", "multimodal hallucination"],
           "faithfulness",
@@ -34,8 +34,8 @@
       },
       {
         "id": "post-training",
-        "name": "大模型后训练",
-        "name_en": "LLM Post-training",
+        "name": "LLM Post-training",
+        "name_zh": "大模型后训练",
         "keywords": [
           ["post-training", "post training"],
           ["rlhf", "reinforcement learning from human feedback"],
@@ -56,8 +56,8 @@
       },
       {
         "id": "architecture",
-        "name": "大模型架构",
-        "name_en": "LLM Architecture",
+        "name": "LLM Architecture",
+        "name_zh": "大模型架构",
         "keywords": [
           "transformer architecture",
           ["mixture of experts", "mixture-of-experts", "moe", "expert routing"],
@@ -126,9 +126,9 @@
     }
   },
   "locales": {
-    "en": {
+    "zh": {
       "zotero": {
-        "pending_collection": "Pending"
+        "pending_collection": "待定"
       }
     }
   }
