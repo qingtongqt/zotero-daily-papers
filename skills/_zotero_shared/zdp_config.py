@@ -7,9 +7,9 @@ Merge order (later wins):
   3. the JSON file named by ZDP_CONFIG
   4. env: ZOTERO_API_KEY, ZOTERO_LIBRARY_ID, ZOTERO_LIBRARY_TYPE
 
-`language` ("zh" or "en", env ZDP_LANGUAGE) picks the language of generated notes and
-localized defaults: `locales.<lang>` of the default file is merged over the (English) defaults,
-and default direction names take their `name_<lang>`, before personal overrides apply, so explicitly configured values always win.
+`language` ("zh" or "en", env ZDP_LANGUAGE) picks the language of generated notes.
+With "zh" the default pending collection is named "待定" instead of "Pending"; an explicitly
+configured pending_collection always wins.
 
 Run directly to print the effective config (API key masked) and runtime paths.
 `--init` writes a personal config template once and never overwrites it.
@@ -30,6 +30,8 @@ SHARED_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SHARED_DIR.parent.parent  # Legacy diagnostic field only.
 DEFAULT_CONFIG_PATH = SHARED_DIR / "config.default.json"
 LANGUAGES = ("zh", "en")
+# Localized defaults that sit below every personal override.
+LOCALIZED_DEFAULTS = {"zh": {"zotero": {"pending_collection": "待定"}}}
 
 
 def config_home() -> Path:
@@ -63,7 +65,6 @@ def validate_language(value: object) -> str:
 @lru_cache(maxsize=1)
 def load_config() -> dict:
     config = json.loads(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
-    locales = config.pop("locales", {})
     paths = [personal_config_path()]
     explicit = os.environ.get("ZDP_CONFIG")
     if explicit:
@@ -83,12 +84,7 @@ def load_config() -> dict:
     for loaded in overrides:
         language = loaded.get("language", language)
     language = validate_language(os.environ.get("ZDP_LANGUAGE", "").strip() or language)
-    _deep_merge(config, copy.deepcopy(locales.get(language, {})))
-    for direction in config["daily_papers"].get("directions", []):
-        direction["name"] = direction.get(f"name_{language}", direction["name"])
-    for direction in config["daily_papers"].get("directions", []):
-        for key in [k for k in direction if k.startswith("name_")]:
-            del direction[key]
+    _deep_merge(config, copy.deepcopy(LOCALIZED_DEFAULTS.get(language, {})))
     for loaded in overrides:
         _deep_merge(config, loaded)
     config["language"] = language

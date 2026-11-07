@@ -100,7 +100,7 @@ python3 install.py --target ~/.agents/skills --lang zh    # 不加 --lang 则安
 
 ### 4. 设置研究方向
 
-默认配置面向三个方向：多模态大模型幻觉、大模型后训练、大模型架构。要换成你自己的方向，先创建个人配置：
+默认配置面向三个方向：多模态大模型幻觉（`MLLM Hallucination`）、大模型后训练（`LLM Post-training`）、大模型架构（`LLM Architecture`）。默认配置全部为英文，方向名会原样出现在点评、笔记和标签中；要换成你自己的方向（可以用中文命名），先创建个人配置：
 
 ```bash
 python3 skills/_zotero_shared/zdp_config.py --init
