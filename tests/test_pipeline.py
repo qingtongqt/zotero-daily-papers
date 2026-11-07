@@ -123,7 +123,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual([o['itemType'] for o in creates], ['note', 'preprint', 'note'])
         self.assertIn('https://arxiv.org/abs/2311.16922', creates[0]['note'])
         key = result['papers']['2311.16922']['item_key']
-        pending = next(k for k, c in zot.collections.items() if c['name'] == '待定')
+        pending = next(k for k, c in zot.collections.items() if c['name'] == 'Pending')
         self.assertEqual(zot.items[key]['data']['collections'], [pending])
         digest = zot.items[result['digest_note_key']]['data']['note']
         self.assertIn(zot.select_link(key), digest)
@@ -154,7 +154,7 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(zp.ZoteroError):
             self.run_pipeline(zot)
         self.assertEqual(zot.items, {})
-        self.assertNotIn('待定', [c['name'] for c in zot.collections.values()])
+        self.assertNotIn('Pending', [c['name'] for c in zot.collections.values()])
         saved = json.loads((self.path / 'result.json').read_text())
         self.assertEqual(saved['stage'], 'digest_failed')
 
@@ -168,14 +168,14 @@ class PipelineTests(unittest.TestCase):
         result = self.run_pipeline(zot)
         key = result['papers']['2311.16922']['item_key']
         self.assertEqual(zot.items[key]['data']['collections'], ['CUSTOM01'])
-        self.assertNotIn('待定', [c['name'] for c in zot.collections.values()])
+        self.assertNotIn('Pending', [c['name'] for c in zot.collections.values()])
 
     def test_existing_no_match_uses_pending(self):
         self.cfg['classification_mode'] = 'existing'
         self.payload['papers'][0]['collection_keys'] = []
         zot = MemoryZotero()
         self.run_pipeline(zot)
-        self.assertIn('待定', [c['name'] for c in zot.collections.values()])
+        self.assertIn('Pending', [c['name'] for c in zot.collections.values()])
 
     def test_failed_paper_not_in_reading_queue_or_history(self):
         zot = MemoryZotero()
@@ -210,7 +210,7 @@ class PipelineTests(unittest.TestCase):
             zp.cmd_upsert(zot, self.cfg, args)
         result = json.loads(output.call_args.args[0])
         self.assertTrue(result['created'])
-        pending = next(k for k, c in zot.collections.items() if c['name'] == '待定')
+        pending = next(k for k, c in zot.collections.items() if c['name'] == 'Pending')
         self.assertEqual(result['collection_keys'], [pending])
         self.assertNotIn('Daily Papers', [c['name'] for c in zot.collections.values()])
 

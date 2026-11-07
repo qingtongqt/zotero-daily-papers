@@ -33,7 +33,7 @@ class ClassificationTests(unittest.TestCase):
         catalog = []
         self.assertEqual(zp.select_collections(zot, {}, [], catalog), ['PENDING'])
         self.assertEqual(zp.select_collections(zot, {}, [], catalog), ['PENDING'])
-        zot.create.assert_called_once_with([{'name': '待定'}], path='/collections')
+        zot.create.assert_called_once_with([{'name': 'Pending'}], path='/collections')
 
     def test_unknown_or_deleted_key_fails_without_write(self):
         zot = Mock()
