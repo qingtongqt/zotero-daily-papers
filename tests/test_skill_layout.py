@@ -60,6 +60,47 @@ class LayoutTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 installer.install(target, lang='fr')
 
+    def test_host_targets(self):
+        self.assertEqual(installer.host_target('claude'), Path.home() / '.claude/skills')
+        self.assertEqual(installer.host_target('codex'), Path.home() / '.agents/skills')
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp).resolve()
+            self.assertEqual(installer.host_target('claude', project), project / '.claude/skills')
+            self.assertEqual(installer.host_target('codex', project), project / '.agents/skills')
+            with self.assertRaises(ValueError):
+                installer.host_target('claude', project / 'missing')
+        with self.assertRaises(ValueError):
+            installer.host_target('cursor')
+
+    def test_project_install_uses_relative_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Project and this checkout live side by side; moving both keeps the links valid.
+            workspace = Path(tmp) / 'workspace'
+            checkout = workspace / 'zotero-daily-papers'
+            shutil.copytree(ROOT, checkout, symlinks=True,
+                            ignore=shutil.ignore_patterns('__pycache__', '.git'))
+            project = workspace / 'my-project'
+            project.mkdir()
+            run = subprocess.run([sys.executable, str(checkout / 'install.py'), '--host', 'claude',
+                                  '--project', str(project), '--lang', 'zh'],
+                                 env={**os.environ, 'XDG_CONFIG_HOME': tmp}, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            target = project / '.claude/skills'
+            for name in (*installer.SKILLS, '_zotero_shared'):
+                self.assertFalse(os.path.isabs(os.readlink(target / name)), name)
+            moved = Path(tmp) / 'moved'
+            workspace.rename(moved)
+            for name in (*installer.SKILLS, '_zotero_shared'):
+                self.assertEqual((moved / 'my-project/.claude/skills' / name).resolve(),
+                                 (moved / 'zotero-daily-papers/skills' / name).resolve())
+                self.assertTrue((moved / 'my-project/.claude/skills' / name).is_dir())
+
+    def test_project_requires_host(self):
+        run = subprocess.run([sys.executable, str(ROOT / 'install.py'), '--target', '/tmp/x', '--project'],
+                             capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn('--project requires --host', run.stderr)
+
     def test_cli_saves_language_to_personal_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / 'zotero-daily-papers/config.json'

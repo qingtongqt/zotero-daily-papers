@@ -74,8 +74,8 @@ the note title markers (`[Deep Read]` or `【精读】`) and the default pending
 **Claude Code**
 
 ```bash
-python3 install.py --target ~/.claude/skills              # English
-python3 install.py --target ~/.claude/skills --lang zh    # 中文
+python3 install.py --host claude              # English, into ~/.claude/skills
+python3 install.py --host claude --lang zh    # 中文
 ```
 
 The skills are available in the current session. Trigger them in natural language, or call `/zotero-daily-papers` manually.
@@ -83,11 +83,24 @@ The skills are available in the current session. Trigger them in natural languag
 **Codex**
 
 ```bash
-python3 install.py --target ~/.agents/skills              # add --lang zh for Chinese
+python3 install.py --host codex               # into ~/.agents/skills; add --lang zh for Chinese
 ```
 
 Restart Codex if the skills do not show up. Trigger them in natural language, call `$zotero-daily-papers`,
 or pick it via `/skills`. Older Codex versions use the `~/.codex/skills` directory.
+
+**Project-level install**
+
+To make the skills available only inside one project, add `--project` (defaults to the current directory):
+
+```bash
+python3 install.py --host claude --project ~/work/my-project    # -> my-project/.claude/skills
+python3 install.py --host codex  --project ~/work/my-project    # -> my-project/.agents/skills
+```
+
+Project installs use relative links, so they keep working when the project and this directory are moved together
+(for example when this repository sits inside the project, or as a git submodule).
+The language and personal config are still shared by all installs. For any other skill directory, use `--target <dir>`.
 
 > If you use both, run both commands. They link to the same project directory, so updating the code happens in one place.
 > To install by copying, copy the three skills and `_zotero_shared/` from `skills-en/` with `cp -rL` (to resolve the links inside) into the host skill directory, keeping the four directories side by side, then run `python3 skills/_zotero_shared/zdp_config.py --set-language en`.
