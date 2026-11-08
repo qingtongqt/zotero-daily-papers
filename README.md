@@ -13,7 +13,7 @@ Just say "today's paper recommendations" in the agent chat and the rest happens 
 - **Automatic saving**: save today's digest first, then the selected papers (with PDF and review child note), and finally backfill the item links in the digest.
 - **Deep-reading notes**: read the full text of must-read papers and write a note with method, formulas, main results table, plus explanations of key figures with links to their pages in the PDF (figures are not embedded in local mode), saved as a child note.
 - **Standalone use**: you can also just save a paper, or just deep-read a paper.
-- **Safe to rerun**: reruns deduplicate first and reuse existing items and notes instead of creating new ones; your manual collections and attachments are kept.
+- **Safe to rerun**: reruns deduplicate first and reuse existing items and notes instead of creating new ones; your manual collections and attachments are kept. Read requests retry transient 429/5xx errors with backoff, and a same-day rerun resumes only the unfinished papers while keeping one cumulative result record.
 - **Local first**: writes through Zotero 10's local API; no cloud API key needed, and `zotero.sqlite` is never read or written directly.
 - **Attanger compatible**: works with the Attanger plugin and verifies whether PDFs were moved to your file directory.
 

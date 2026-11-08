@@ -43,13 +43,18 @@ python3 "{SHARED}/zotero_push.py" push-daily --payload "{TEMP_DIR}/zotero_payloa
 ```
 
 The script first saves today's digest (and stops automatically if that fails), then saves papers, PDFs and review child notes
-for the `write_tiers` (must/worth by default), and records this run in the recommendation history. A rerun on the same day reuses
-existing items and notes, so it is safe to rerun.
+for the `write_tiers` (must/worth by default), and records this run in the recommendation history. Read requests that hit 429/5xx
+or a dropped connection are retried with backoff; writes are never retried automatically.
+A rerun on the same day **resumes**: it reads the existing `zotero_push_result.json`, skips stages and papers that already finished
+with an unchanged payload, processes only failed/unfinished ones, and merges everything into one cumulative record.
+Pass `--fresh` only to redo the whole batch.
 Note: multi-day `--days N` mode does not deduplicate against history, so previously recommended papers may reappear.
 
-Read `zotero_push_result.json`: it contains `stage`, the digest key, per-paper results, errors and `reading_queue`.
+Read `zotero_push_result.json`: it contains `stage`, the digest key, per-paper results, the unresolved errors, `reading_queue`,
+`summary` (saved/created/existing/failed counts) and `runs` (papers processed and skipped, and errors, per run).
+A paper's `created` says whether this task created it (cumulative across runs; a rerun never resets it to false); report new papers from `summary.created`.
 Each paper result has `attanger.status`; when reporting, list the papers with `not_moved` and ask the user to rename and move them manually in Zotero.
-Exit code 2 means partial failure; check the cause and rerun.
+Exit code 2 means partial failure; check the cause and rerun the same command to resume. Do not redo the whole batch.
 Never ignore errors silently; reading can continue for the successful part, and failures are recorded and reported separately.
 
 ## 4. Deep reading
