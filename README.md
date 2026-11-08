@@ -213,6 +213,7 @@ In both modes, papers already in some collection keep it and are not added to "P
 | `recall_min_score` | `3` | minimum keyword prefilter score |
 | `ranking.min_score` | `2.0` | selection threshold of the agent's relevance score (0–4) |
 | `focus_bonus` | `3` | points added per focus group hit |
+| `history_path` | `""` | recommendation history file; empty means `~/.config/zotero-daily-papers/history.json`. Accepts `~` and environment variables; point it into a synced folder to share the history between computers |
 
 All settings, Web API mode and troubleshooting are in [Zotero setup](skills/_zotero_shared/references/zotero-setup.en.md).
 
@@ -268,7 +269,7 @@ zotero-daily-papers/
 
 ## Data and privacy
 
-- Settings are stored per install in `_zotero_shared/config.json`; local authorization, caches and recommendation history are stored in `~/.config/zotero-daily-papers/` and shared by all installs (authorization files have permission 600).
+- Settings are stored per install in `_zotero_shared/config.json`; local authorization, caches and recommendation history are stored in `~/.config/zotero-daily-papers/` and shared by all installs (authorization files have permission 600). `daily_papers.history_path` moves only the history file.
 - Intermediate files go to the system temp directory; set `ZDP_TEMP_DIR` to choose another.
 - Fetching accesses arXiv and the Hugging Face Daily/Trending APIs; enrichment accesses arXiv pages and PDFs; local saving accesses localhost.
 - Web API mode also accesses the Zotero cloud and the file upload URLs it returns; embedding images in that mode also accesses the image URLs in notes.

@@ -117,6 +117,7 @@
     "recall_min_score": 3,
     "top_n": 10,
     "candidate_pool_size": 30,
+    "history_path": "",
     "ranking": {
       "backend": "agent",
       "min_score": 2.0
