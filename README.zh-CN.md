@@ -214,6 +214,7 @@ python3 ~/.claude/skills/_zotero_shared/zdp_config.py --set-classification exist
 | `recall_min_score` | `3` | 关键词初筛的最低分 |
 | `ranking.min_score` | `2.0` | Agent 相关性评分（0–4）的入选门槛 |
 | `focus_bonus` | `3` | 每命中一组关注词加的分数 |
+| `history_path` | `""` | 推荐历史文件路径；留空则为 `~/.config/zotero-daily-papers/history.json`。支持 `~` 和环境变量；指向同步文件夹即可在多台电脑间共用历史 |
 
 全部配置项、Web API 模式和排错说明见 [Zotero 配置](skills/_zotero_shared/references/zotero-setup.md)。
 
@@ -269,7 +270,7 @@ zotero-daily-papers/
 
 ## 数据与隐私
 
-- 设置保存在各安装位置的 `_zotero_shared/config.json`；本地授权、缓存和推荐历史保存在 `~/.config/zotero-daily-papers/`，由所有安装共用（授权文件权限为 600）。
+- 设置保存在各安装位置的 `_zotero_shared/config.json`；本地授权、缓存和推荐历史保存在 `~/.config/zotero-daily-papers/`，由所有安装共用（授权文件权限为 600）。`daily_papers.history_path` 只移动历史文件。
 - 中间文件写入系统临时目录，可用环境变量 `ZDP_TEMP_DIR` 指定。
 - 抓取访问 arXiv 和 Hugging Face Daily/Trending API；富化访问 arXiv 页面与 PDF，本机入库访问 localhost。
 - 使用 Web API 模式时还会访问 Zotero 云端及其返回的文件上传地址；该模式嵌入图片时也会访问笔记中的图片 URL。

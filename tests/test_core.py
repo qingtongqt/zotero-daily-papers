@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills/_zotero_shared"))
@@ -175,6 +176,28 @@ class ZoteroPayloadTests(unittest.TestCase):
             self.assertIn('href="zotero://select/library/items/DRY', preview)
             self.assertIn('href="https://arxiv.org/abs/2312.00752"', preview)  # skip tier -> arXiv link
             self.assertFalse((t / "zotero-daily-papers" / "history.json").exists())
+
+    def test_history_path_setting(self):
+        import zdp_config
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            def configured(value):
+                (t / "c.json").write_text(json.dumps({"daily_papers": {"history_path": value}}))
+                zdp_config.load_config.cache_clear()
+                return zdp_config.history_path()
+            env = {"ZDP_CONFIG": str(t / "c.json"), "XDG_CONFIG_HOME": str(t / "xdg"), "ZDP_SYNC": str(t / "sync")}
+            try:
+                with patch.dict(os.environ, env):
+                    self.assertEqual(configured(""), t / "xdg" / "zotero-daily-papers" / "history.json")
+                    self.assertEqual(configured("$ZDP_SYNC/zdp/history.json"), t / "sync" / "zdp" / "history.json")
+                    zdp_config.save_history([{"id": "2311.16922", "date": "2026-11-04"}])
+                    self.assertEqual(zdp_config.load_history()[0]["id"], "2311.16922")
+                    self.assertTrue((t / "sync" / "zdp" / "history.json").is_file())
+                    self.assertEqual(configured("~/h.json"), Path("~/h.json").expanduser())
+                    with self.assertRaises(ValueError):
+                        configured("relative/history.json")
+            finally:
+                zdp_config.load_config.cache_clear()
 
 
 if __name__ == "__main__":

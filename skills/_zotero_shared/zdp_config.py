@@ -13,6 +13,7 @@ configured pending_collection always wins.
 
 Zotero authorization, caches and recommendation history are not settings; they live in
 ~/.config/zotero-daily-papers/ (XDG_CONFIG_HOME respected) and are shared by all installs.
+`daily_papers.history_path` moves the history file elsewhere, e.g. into a synced folder.
 
 Run directly to print the effective config (API key masked) and runtime paths.
 `--init` writes a config template once and never overwrites it.
@@ -49,7 +50,17 @@ def personal_config_path() -> Path:
 
 
 def history_path() -> Path:
-    return config_home() / "history.json"
+    """Recommendation history file: `daily_papers.history_path` if set, else in config_home().
+
+    The setting accepts ~ and environment variables and must be an absolute file path.
+    """
+    configured = (load_config()["daily_papers"].get("history_path") or "").strip()
+    if not configured:
+        return config_home() / "history.json"
+    path = Path(os.path.expandvars(configured)).expanduser()
+    if not path.is_absolute():
+        raise ValueError(f"daily_papers.history_path must be an absolute path, got {configured!r}")
+    return path
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
