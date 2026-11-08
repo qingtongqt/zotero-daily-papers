@@ -100,6 +100,7 @@ class PipelineTests(unittest.TestCase):
         self.path = Path(self.tmp)
         for name, value in [('load_cache', {}), ('load_history', []), ('save_cache', None), ('save_history', None)]:
             self.enterContext(patch.object(zp, name, return_value=value))
+        self.enterContext(patch.object(zp, 'fetch_arxiv_meta_batch', return_value={}))
         self.payload = {'date': '2026-11-04', 'digest_markdown': '# Daily\n[VCD](zotero:2311.16922)',
                         'papers': [{'arxiv_id': '2311.16922', 'tier': 'must', 'review_markdown': '# Review'}]}
         self.enriched = [{'arxiv_id': '2311.16922', 'title': 'VCD', 'abstract': 'Visual contrastive decoding'}]
@@ -112,6 +113,17 @@ class PipelineTests(unittest.TestCase):
     def run_pipeline(self, zot):
         (self.path / 'p.json').write_text(json.dumps(self.payload))
         zp.cmd_push_daily(zot, self.cfg, self.args)
+        return json.loads((self.path / 'result.json').read_text())
+
+    def run_pipeline_with(self, zot, **flags):
+        old = self.args
+        self.args = Namespace(**{**vars(old), **flags})
+        try:
+            return self.run_pipeline(zot)
+        finally:
+            self.args = old
+
+    def read_result(self):
         return json.loads((self.path / 'result.json').read_text())
 
     def test_digest_precedes_paper_default_pending_and_rerun_is_idempotent(self):
@@ -135,7 +147,12 @@ class PipelineTests(unittest.TestCase):
         count = len(zot.items)
         repeated = self.run_pipeline(zot)
         self.assertEqual(len(zot.items), count)
-        self.assertFalse(repeated['papers']['2311.16922']['created'])
+        # The task record is cumulative: the rerun keeps the first run's "created".
+        self.assertTrue(repeated['papers']['2311.16922']['created'])
+        fresh = self.run_pipeline_with(zot, fresh=True)
+        self.assertEqual(len(zot.items), count)
+        self.assertFalse(fresh['papers']['2311.16922']['created'])
+        self.assertEqual(len(fresh['runs']), 1)
 
     def test_digest_lives_directly_in_daily_papers(self):
         zot = MemoryZotero()
@@ -188,6 +205,105 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result['reading_queue'], [])
         history.assert_called_once_with([])
         self.assertEqual(len(zot.items), 1)  # overview remains
+
+    def add_papers(self, *ids):
+        for aid in ids:
+            self.payload['papers'].append({'arxiv_id': aid, 'tier': 'worth', 'review_markdown': f'# Review {aid}'})
+            self.enriched.append({'arxiv_id': aid, 'title': f'Paper {aid}'})
+        (self.path / 'e.json').write_text(json.dumps(self.enriched))
+
+    def test_partial_failure_resumes_only_unfinished_papers_and_keeps_created(self):
+        zot = MemoryZotero()
+        existing = zot.create([zp.item_payload({'arxiv_id': '2401.00003', 'title': 'Old'}, ['CUSTOM01'], [])])[0]
+        self.add_papers('2401.00002', '2401.00003')
+        real_ensure = zp.ensure_paper
+
+        def flaky(zot_, meta, *a, **kw):
+            if meta['arxiv_id'] == '2401.00002':
+                raise zp.ZoteroError('GET /items -> HTTP 500')
+            return real_ensure(zot_, meta, *a, **kw)
+
+        with patch.object(zp, 'ensure_paper', side_effect=flaky), self.assertRaises(SystemExit):
+            self.run_pipeline(zot)
+        first = self.read_result()
+        self.assertEqual(first['stage'], 'papers_partial')
+        self.assertEqual(first['runs'][0]['processed'], ['2311.16922', '2401.00002', '2401.00003'])
+        self.assertIn('HTTP 500', first['papers']['2401.00002']['error'])
+
+        events = len(zot.events)
+        with patch.object(zp, 'find_item', wraps=zp.find_item) as finds, \
+                patch.object(zp, 'ensure_paper', wraps=real_ensure) as ensures:
+            second = self.run_pipeline(zot)
+        # Only the failed paper is redone; finished papers and dedup are not repeated.
+        self.assertEqual([c.args[1]['arxiv_id'] for c in ensures.call_args_list], ['2401.00002'])
+        self.assertEqual([c.args[1] for c in finds.call_args_list], ['2401.00002'])
+        self.assertEqual(second['stage'], 'papers_saved')
+        self.assertEqual(second['errors'], [])
+        self.assertEqual(second['runs'][1]['processed'], ['2401.00002'])
+        self.assertEqual(second['runs'][1]['skipped'], ['2311.16922', '2401.00003'])
+        self.assertTrue(second['runs'][1]['resumed'])
+        papers = second['papers']
+        self.assertTrue(papers['2311.16922']['created'])
+        self.assertEqual(papers['2311.16922']['created_in_run'], 1)
+        self.assertTrue(papers['2401.00002']['created'])
+        self.assertEqual(papers['2401.00002']['created_in_run'], 2)
+        self.assertEqual(papers['2401.00002']['attempts'], 2)
+        self.assertNotIn('error', papers['2401.00002'])
+        self.assertFalse(papers['2401.00003']['created'])
+        self.assertEqual(papers['2401.00003']['existing_item_key'], existing)
+        self.assertEqual(second['summary'], {'papers': 3, 'saved': 3, 'created': 2, 'existing': 1,
+                                             'failed': 0, 'runs': 2})
+        self.assertGreater(len(zot.events), events)
+        # A third run has nothing left to do and writes nothing.
+        events = len(zot.events)
+        third = self.run_pipeline(zot)
+        self.assertEqual(len(zot.events), events)
+        self.assertEqual(third['runs'][2]['processed'], [])
+        self.assertEqual(third['summary']['created'], 2)
+
+    def test_dedup_read_failure_is_recorded_and_resumed(self):
+        zot = MemoryZotero()
+        self.add_papers('2401.00002')
+        real_find = zp.find_item
+
+        def flaky(zot_, aid, cache):
+            if aid == '2401.00002':
+                raise zp.ZoteroError('GET /items -> HTTP 500')
+            return real_find(zot_, aid, cache)
+
+        with patch.object(zp, 'find_item', side_effect=flaky), self.assertRaises(zp.ZoteroError):
+            self.run_pipeline(zot)
+        first = self.read_result()
+        self.assertEqual(first['stage'], 'dedup_failed')
+        self.assertIn('dedup: GET /items -> HTTP 500', first['errors'])
+        self.assertIn('existing_item_key', first['papers']['2311.16922'])
+        self.assertEqual(zot.events, [])                 # nothing written before dedup finished
+        with patch.object(zp, 'find_item', wraps=real_find) as finds:
+            second = self.run_pipeline(zot)
+        self.assertEqual([c.args[1] for c in finds.call_args_list if c.args[1] == '2311.16922'], ['2311.16922'])
+        self.assertEqual(second['stage'], 'papers_saved')
+        self.assertEqual(second['summary']['created'], 2)
+        self.assertEqual([r['stage'] for r in second['runs']], ['dedup_failed', 'papers_saved'])
+
+    def test_changed_review_is_rewritten_on_resume(self):
+        zot = MemoryZotero()
+        first = self.run_pipeline(zot)
+        note = first['papers']['2311.16922']['review_note_key']
+        self.payload['papers'][0]['review_markdown'] = '# Review v2'
+        second = self.run_pipeline(zot)
+        self.assertEqual(second['runs'][1]['processed'], ['2311.16922'])
+        self.assertEqual(second['papers']['2311.16922']['review_note_key'], note)
+        self.assertIn('Review v2', zot.items[note]['data']['note'])
+        self.assertTrue(second['papers']['2311.16922']['created'])
+
+    def test_record_of_another_day_is_not_resumed(self):
+        zot = MemoryZotero()
+        self.run_pipeline(zot)
+        self.payload['date'] = '2026-11-05'
+        result = self.run_pipeline(zot)
+        self.assertEqual(result['date'], '2026-11-05')
+        self.assertEqual(len(result['runs']), 1)
+        self.assertFalse(result['papers']['2311.16922']['created'])
 
     def test_readonly_dedup_merges_ids_and_retains_existing(self):
         zot = MemoryZotero()

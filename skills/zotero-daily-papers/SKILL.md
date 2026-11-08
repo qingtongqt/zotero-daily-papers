@@ -42,12 +42,16 @@ python3 "{SHARED}/zotero_push.py" push-daily --payload "{TEMP_DIR}/zotero_payloa
 ```
 
 脚本先保存当天总览（失败则自动停止），再按 `write_tiers`（默认 must/worth）保存论文、PDF 和点评子笔记，
-并把本次论文写入推荐历史。同日重跑会复用已有条目和笔记，可直接重跑。
+并把本次论文写入推荐历史。只读请求遇到 429/5xx 或网络中断会自动退避重试；写请求不自动重试。
+同日重跑是**续跑**：读取已有 `zotero_push_result.json`，跳过已完成且载荷未变的阶段和论文，只处理失败/未完成项，
+结果合并进同一份累计记录。只有要整批重做时才加 `--fresh`。
 注意：`--days N` 多天模式不按历史去重，可能出现之前推荐过的论文。
 
-读取 `zotero_push_result.json`：包含 `stage`、总览 key、每篇结果、错误和 `reading_queue`。
+读取 `zotero_push_result.json`：包含 `stage`、总览 key、每篇结果、当前未解决错误、`reading_queue`、
+`summary`（入库/新建/已有/失败篇数）和 `runs`（每次运行处理、跳过的论文及错误）。
+每篇的 `created` 表示是否由本任务新建（跨运行累计，重跑不会改回 false）；汇报新增数量以 `summary.created` 为准。
 每篇结果含 `attanger.status`；汇报时列出 `not_moved` 的论文，提示用户在 Zotero 中手动重命名并移动。
-退出码 2 是部分失败；检查原因后重跑。
+退出码 2 是部分失败；检查原因后用同一命令重跑即可续跑，不要整批重做。
 错误不能静默忽略；成功部分的精读可以继续，失败项单独记录并汇报。
 
 ## 4. 精读

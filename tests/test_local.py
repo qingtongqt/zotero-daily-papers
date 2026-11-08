@@ -92,6 +92,62 @@ class LocalTests(unittest.TestCase):
                 patch.object(z, 'file_info', return_value={'exists': True, 'path': '/od/x.pdf'}):
             self.assertEqual(zp.ensure_pdf(z, 'PARENT01', '2311.16922', 'upload', kids), 'LINKED01')
 
+    def test_local_read_retries_server_errors_with_backoff(self):
+        z = self.client()
+        err = HTTPError(z.base, 500, 'Internal Server Error', {}, None)
+        with patch.object(z, '_request', side_effect=[err, URLError('reset'), (200, {}, b'[]')]) as request, \
+                patch.object(zp.time, 'sleep') as sleep:
+            self.assertEqual(z.get('/items'), [])
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [1, 2])
+
+    def test_local_read_gives_up_after_retries_and_skips_client_errors(self):
+        z = self.client()
+        err = HTTPError(z.base, 500, 'Internal Server Error', {}, None)
+        with patch.object(z, '_request', side_effect=err) as request, patch.object(zp.time, 'sleep'):
+            with self.assertRaisesRegex(zp.ZoteroError, 'HTTP 500'):
+                z.get('/items')
+        self.assertEqual(request.call_count, zp.READ_ATTEMPTS)
+        missing = HTTPError(z.base, 404, 'Not Found', {}, None)
+        with patch.object(z, '_request', side_effect=missing) as request, patch.object(zp.time, 'sleep'):
+            self.assertIsNone(z.item('ABCDEFGH'))
+        self.assertEqual(request.call_count, 1)
+
+    def test_local_write_server_error_is_not_retried(self):
+        z = self.client()
+        err = HTTPError(z.base, 500, 'Internal Server Error', {}, None)
+        with patch.object(z, '_request', side_effect=err) as request, patch.object(zp.time, 'sleep'):
+            with self.assertRaises(zp.ZoteroError):
+                z.patch('ABCDEFGH', 7, {})
+        self.assertEqual(request.call_count, 1)
+
+    def test_web_read_retries_500_but_write_does_not(self):
+        z = zp.Zotero({'api_key': 'cloud-key', 'library_id': '123'})
+
+        class Resp:
+            status, headers = 200, {}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return b'[]'
+
+        def error(code):
+            return HTTPError(z.base, code, 'error', {}, None)
+
+        with patch.object(zp, 'urlopen', side_effect=[error(500), error(502), Resp()]) as fetch, \
+                patch.object(zp.time, 'sleep'):
+            self.assertEqual(z.get('/items'), [])
+        self.assertEqual(fetch.call_count, 3)
+        with patch.object(zp, 'urlopen', side_effect=error(500)) as fetch, patch.object(zp.time, 'sleep'):
+            with self.assertRaises(zp.ZoteroError):
+                z.patch('ABCDEFGH', 7, {})
+        self.assertEqual(fetch.call_count, 1)
+
+    def test_retry_delay(self):
+        self.assertEqual([zp.retry_delay(i) for i in range(4)], [1, 2, 4, 8])
+        self.assertEqual(zp.retry_delay(0, '5'), 5)
+        self.assertEqual(zp.retry_delay(2, 'Wed, 21 Oct 2026 07:28:00 GMT'), 4)
+        self.assertEqual(zp.retry_delay(10), 60)
+
     def test_web_backend_still_uses_cloud(self):
         z = zp.Zotero({'api_key': 'cloud-key', 'library_id': '123'})
         self.assertEqual(z.base, 'https://api.zotero.org/users/123')

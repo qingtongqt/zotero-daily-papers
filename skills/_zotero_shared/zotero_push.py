@@ -8,7 +8,9 @@ Subcommands
   check                         verify key, permissions and library id
   setup                         create daily digest containers (idempotent)
   push-daily --payload P        create/update recommended items, review notes, PDF links,
-             --enriched E       the day's digest note; write result JSON + history
+             --enriched E       the day's digest note; write result JSON + history.
+             [--fresh]          A same-day rerun resumes: finished stages/papers are skipped and
+                                the result JSON is a cumulative record; --fresh redoes everything
   upsert-paper --arxiv ID       save to pending by default; existing mode requests classification
   add-note (--arxiv ID|--item KEY) --markdown F [--kind full-note] [--replace]
                                 attach a Markdown note (converted to Zotero HTML; LaTeX kept)
@@ -81,6 +83,42 @@ class ZoteroError(RuntimeError):
     pass
 
 
+# Reads are safe to repeat, so transient server/network failures on them are retried with
+# exponential backoff. Writes are never retried here: the server may already have committed them.
+READ_METHODS = ("GET", "HEAD")
+READ_RETRY_STATUS = (429, 500, 502, 503, 504)
+READ_ATTEMPTS = 5
+
+
+def retry_delay(attempt: int, retry_after: str | None = None) -> float:
+    """Seconds to wait before retry number `attempt + 1` (1, 2, 4, 8 ... capped at 60)."""
+    try:
+        if retry_after:
+            return min(max(float(retry_after), 0), 60)
+    except ValueError:
+        pass  # an HTTP-date Retry-After; fall back to exponential backoff
+    return min(2 ** attempt, 60)
+
+
+def read_url(url: str, timeout: int = 60, attempts: int = READ_ATTEMPTS) -> bytes:
+    """GET a public URL (e.g. the arXiv API) with read retries."""
+    for attempt in range(attempts):
+        try:
+            with urlopen(Request(url, headers={"User-Agent": UA}), timeout=timeout) as resp:
+                return resp.read()
+        except HTTPError as err:
+            if err.code not in READ_RETRY_STATUS or attempt == attempts - 1:
+                raise
+            wait = retry_delay(attempt, err.headers.get("Retry-After") if err.headers else None)
+        except (URLError, OSError):
+            if attempt == attempts - 1:
+                raise
+            wait = retry_delay(attempt)
+        log(f"GET {url} failed; retrying in {wait:g}s ({attempt + 1}/{attempts - 1})")
+        time.sleep(wait)
+    raise OSError(f"GET {url} failed after retries")
+
+
 def file_uri_to_path(uri: str, windows: bool = os.name == "nt") -> str:
     """Local path of a file:// URI; Windows URIs look like file:///C:/Users/... ."""
     parsed = urlsplit(uri)
@@ -134,27 +172,30 @@ class Zotero:
         if auth:
             hdrs.update({"Zotero-API-Key": self.key, "Zotero-API-Version": "3"})
         hdrs.update(headers or {})
-        for attempt in range(5):
+        reading = method in READ_METHODS
+        for attempt in range(READ_ATTEMPTS):
             req = Request(url, data=body, method=method, headers=hdrs)
             try:
                 with urlopen(req, timeout=60) as resp:
                     data = resp.read()
                     backoff = resp.headers.get("Backoff")
                     if backoff:
-                        time.sleep(min(int(backoff), 30))
+                        time.sleep(retry_delay(0, backoff))
                     return resp.status, dict(resp.headers), data
             except HTTPError as err:
                 payload = err.read()
-                if err.code in (429, 503) and attempt < 4:
-                    wait = int(err.headers.get("Retry-After") or 2 ** (attempt + 1))
-                    log(f"rate limited ({err.code}); retrying in {wait}s")
-                    time.sleep(min(wait, 60))
+                # 429/503 mean the request was refused unprocessed; other 5xx only retry reads.
+                retryable = err.code in (429, 503) or (reading and err.code in READ_RETRY_STATUS)
+                if retryable and attempt < READ_ATTEMPTS - 1:
+                    wait = retry_delay(attempt + 1, err.headers.get("Retry-After"))
+                    log(f"{method} {url} -> HTTP {err.code}; retrying in {wait:g}s")
+                    time.sleep(wait)
                     continue
                 raise ZoteroError(f"{method} {url} -> HTTP {err.code}: "
                                   f"{payload.decode('utf-8', 'replace')[:500]}") from None
             except URLError as err:
-                if attempt < 4:
-                    time.sleep(2 ** attempt)
+                if attempt < READ_ATTEMPTS - 1:
+                    time.sleep(retry_delay(attempt))
                     continue
                 raise ZoteroError(f"{method} {url} failed: {err}") from None
         raise ZoteroError(f"{method} {url} failed after retries")
@@ -264,7 +305,11 @@ class LocalZotero(Zotero):
         self.server_id = "dry-run"
         self.version = ""
         if not dry_run:
-            _, headers, _ = self._request("GET", f"{self.origin}/api/")
+            try:
+                _, headers, _ = self._read_with_retry(lambda: self._request("GET", f"{self.origin}/api/"),
+                                                      f"{self.origin}/api/")
+            except (HTTPError, URLError, OSError) as err:
+                raise ZoteroError(f"Local Zotero is not reachable: {err}. Keep Zotero open.") from None
             self.server_id = headers.get("Zotero-Server-ID", "")
             self.version = headers.get("X-Zotero-Version") or headers.get("Zotero-Version", "")
             if not self.server_id:
@@ -284,6 +329,25 @@ class LocalZotero(Zotero):
                       headers={"User-Agent": UA, "Zotero-API-Version": "3", **(headers or {})})
         with urlopen(req, timeout=120) as resp:
             return resp.status, resp.headers, resp.read()
+
+    @staticmethod
+    def _read_with_retry(call, url: str):
+        """Run a read request, retrying 429/5xx and connection errors with backoff."""
+        for attempt in range(READ_ATTEMPTS):
+            try:
+                return call()
+            except HTTPError as err:
+                if err.code not in READ_RETRY_STATUS or attempt == READ_ATTEMPTS - 1:
+                    raise
+                wait = retry_delay(attempt, err.headers.get("Retry-After") if err.headers else None)
+                log(f"GET {url} -> HTTP {err.code}; retrying in {wait:g}s ({attempt + 1}/{READ_ATTEMPTS - 1})")
+            except (URLError, OSError) as err:
+                if attempt == READ_ATTEMPTS - 1:
+                    raise
+                wait = retry_delay(attempt)
+                log(f"GET {url} failed ({err}); retrying in {wait:g}s ({attempt + 1}/{READ_ATTEMPTS - 1})")
+            time.sleep(wait)
+        raise OSError(f"GET {url} failed after retries")
 
     def authorize(self):
         if self.dry_run:
@@ -316,6 +380,8 @@ class LocalZotero(Zotero):
                 if writing:
                     hdrs["Zotero-API-Key"] = self.key
             try:
+                if method in READ_METHODS:
+                    return self._read_with_retry(lambda: self._request(method, url, body, hdrs), url)
                 return self._request(method, url, body, hdrs)
             except HTTPError as err:
                 if err.code == 401 and writing and attempt == 0:
@@ -492,8 +558,8 @@ def fetch_arxiv_meta_batch(arxiv_ids: list[str]) -> dict[str, dict]:
         chunk = ids[start:start + 50]
         url = (f"https://export.arxiv.org/api/query?id_list={','.join(chunk)}"
                f"&max_results={len(chunk)}")
-        with urlopen(Request(url, headers={"User-Agent": UA}), timeout=60) as resp:
-            root = ET.fromstring(resp.read())
+        # Few attempts: callers fall back to the candidate metadata when arXiv is unavailable.
+        root = ET.fromstring(read_url(url, attempts=3))
         for entry in root.findall("a:entry", ns):
             if entry.find("a:title", ns) is None:
                 continue
@@ -677,6 +743,7 @@ def ensure_pdf(zot: Zotero, item_key: str, aid: str, mode: str, kids: list[dict]
                                 "contentType": "application/pdf", "filename": f"{aid}.pdf",
                                 "url": pdf_url}])[0]
         try:
+            # One attempt: a failed download falls back to a link and the next run retries it.
             with urlopen(Request(pdf_url, headers={"User-Agent": UA}), timeout=120) as resp:
                 pdf = resp.read()
             if not pdf.lstrip().startswith(b"%PDF-"):
@@ -958,7 +1025,46 @@ def cmd_check_papers(zot: Zotero, cfg: dict, args) -> None:
                       "output": args.output}))
 
 
+# Payload fields that decide what gets written for a paper; a change forces it to be redone.
+PAPER_FINGERPRINT_FIELDS = ("tier", "directions", "collection_keys", "tags", "review_markdown")
+
+
+def _fingerprint(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _read_record(path: Path) -> dict | None:
+    if not path.is_file():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as err:
+        log(f"ignoring unreadable previous result {path}: {err}")
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _task_record(record: dict | None, day: str, library: str) -> dict | None:
+    """The previous result of the same task (same day and library), if it can be resumed."""
+    if not record or record.get("dry_run"):
+        return None
+    if record.get("date") != day or record.get("library") != library:
+        log(f"previous result is for another task ({record.get('date')}); starting a new record")
+        return None
+    return record
+
+
 def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
+    """Save the digest, then the papers; resumable and cumulative per day.
+
+    The result file is the task record. A rerun for the same day reads it back, skips stages
+    and papers that already finished with an unchanged payload, retries the rest, and merges
+    everything into the same record, so the first run's facts (e.g. `created`) are kept.
+    """
     payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
     enriched = json.loads(Path(args.enriched).read_text(encoding="utf-8")) if args.enriched else []
     meta_by_id = {}
@@ -982,38 +1088,96 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
         die("digest_markdown is empty")
 
     mode = classification_mode(cfg)
-    catalog = collection_catalog(zot)
-    known = {c["key"] for c in catalog}
-    for paper in papers:
-        if paper["tier"] not in write_tiers:
-            continue
-        selected = [] if mode == "pending" else paper.get("collection_keys")
-        paper["collection_keys"] = selected
-        if mode == "pending":
-            paper["classification_reason"] = "Configured to save in pending collection"
-        if not isinstance(selected, list) or any(
-                not isinstance(k, str) or (k not in known and zot.dry_run is not True) for k in selected):
-            raise ZoteroError("Read collections and supply collection_keys for every saved paper; [] means the pending collection")
+    library = zot.base.replace(API, "")
+    out = Path(args.output) if args.output else temp_file_path("zotero_push_result.json")
+    record = _read_record(out)
+    if zot.dry_run and record and not record.get("dry_run"):
+        out = out.with_name(f"{out.stem}.dry-run{out.suffix}")
+        log(f"dry run: keeping the real task record; writing the plan to {out}")
+    prior = None if getattr(args, "fresh", False) else _task_record(record, day, library)
+    if prior:
+        log(f"resuming the {day} task record ({len(prior.get('runs', []))} earlier run(s))")
+
     cache = load_cache(zot)
     cache["identity"] = zot.cache_identity
-    result = {"date": day, "library": zot.base.replace(API, ""), "classification_mode": mode,
-              "papers": {}, "errors": [], "stage": "deduplicated"}
-    seen = set()
-    for paper in papers:
-        aid = paper["arxiv_id"]
-        if aid in seen:
-            raise ZoteroError(f"Duplicate arXiv ID in payload: {aid}")
-        seen.add(aid)
-        found = find_item(zot, aid, cache)
-        result["papers"][aid] = {"tier": paper["tier"], "title": meta_by_id.get(aid, {}).get("title", ""),
-                                  "existing_item_key": found["key"] if found else None}
-    out = Path(args.output) if args.output else temp_file_path("zotero_push_result.json")
+    runs = [r for r in (prior or {}).get("runs", []) if isinstance(r, dict)]
+    run = {"run": len(runs) + 1, "started_at": _now(), "resumed": bool(prior),
+           "processed": [], "skipped": [], "errors": []}
+    runs.append(run)
+    result = {"date": day, "library": library, "classification_mode": mode,
+              "papers": {aid: dict(e) for aid, e in (prior or {}).get("papers", {}).items()},
+              "errors": [], "stage": "started", "runs": runs}
+    for k in ("digest_note_key", "digest_link", "digest_sha"):
+        if prior and prior.get(k):
+            result[k] = prior[k]
+    if zot.dry_run:
+        result["dry_run"] = True
+    run_errors: list[str] = []  # errors that do not belong to one paper
+
+    def paper_errors():
+        return [f"{aid}: {e['error']}" for aid, e in result["papers"].items()
+                if e.get("error") and not e.get("removed_from_payload")]
+
     def checkpoint():
+        result["errors"] = paper_errors() + run_errors
         out.parent.mkdir(parents=True, exist_ok=True)
         tmp = out.with_suffix(out.suffix + ".tmp")
         tmp.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         tmp.replace(out)
         save_cache(cache, zot.dry_run)
+
+    def finish_run(stage: str):
+        result["stage"] = run["stage"] = stage
+        run["errors"] = [e for e in paper_errors() if e.split(":", 1)[0] in run["processed"]] + run_errors
+        run["finished_at"] = _now()
+        checkpoint()
+
+    def fail(stage: str, label: str, err: Exception):
+        run_errors.append(f"{label}: {err}")
+        finish_run(stage)
+
+    # Stage 1: read-only checks and deduplication. Nothing is written before it completes.
+    fingerprints = {}
+    try:
+        catalog = collection_catalog(zot)
+        known = {c["key"] for c in catalog}
+        for paper in papers:
+            if paper["tier"] not in write_tiers:
+                continue
+            selected = [] if mode == "pending" else paper.get("collection_keys")
+            paper["collection_keys"] = selected
+            if mode == "pending":
+                paper["classification_reason"] = "Configured to save in pending collection"
+            if not isinstance(selected, list) or any(
+                    not isinstance(k, str) or (k not in known and zot.dry_run is not True) for k in selected):
+                raise ZoteroError("Read collections and supply collection_keys for every saved paper; "
+                                  "[] means the pending collection")
+        seen = set()
+        for paper in papers:
+            aid = paper["arxiv_id"]
+            if aid in seen:
+                raise ZoteroError(f"Duplicate arXiv ID in payload: {aid}")
+            seen.add(aid)
+            fingerprints[aid] = _fingerprint({k: paper.get(k) for k in PAPER_FINGERPRINT_FIELDS})
+            entry = result["papers"].setdefault(aid, {})
+            entry.pop("removed_from_payload", None)
+            entry.update(tier=paper["tier"],
+                         title=meta_by_id.get(aid, {}).get("title") or entry.get("title", ""))
+            # Recorded once per task: whether the paper was in the library before the first run.
+            if "existing_item_key" not in entry:
+                found = find_item(zot, aid, cache)
+                entry["existing_item_key"] = found["key"] if found else None
+    except (ZoteroError, URLError, OSError) as err:
+        fail("dedup_failed", "dedup", err)
+        raise
+    # Payload order first; papers dropped from the payload stay in the record, marked.
+    ordered = {p["arxiv_id"]: result["papers"][p["arxiv_id"]] for p in papers}
+    for aid, entry in result["papers"].items():
+        if aid not in ordered:
+            ordered[aid] = {**entry, "removed_from_payload": True}
+    result["papers"] = ordered
+    result["stage"] = "deduplicated"
+    checkpoint()
 
     def digest_markdown():
         def link(m):
@@ -1023,24 +1187,42 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
             return f"]({zot.select_link(key) if key else f'https://arxiv.org/abs/{aid}'})"
         return re.sub(r"\]\(zotero:([^)\s]+)\)", link, payload["digest_markdown"])
 
-    cols = collection_keys(zot, cfg, cache)
+    # Stage 2: the day's digest. Skipped when an earlier run saved this exact digest.
     digest_tags = []
-    existing = [e for e in zot.get_all(f"/collections/{cols['digest']}/items", {"itemType": "note"})
-                if not e.get("data", {}).get("parentItem")
-                and note_matches(e.get("data", {}), "digest", day)]
+    digest_sha = _fingerprint(payload["digest_markdown"])
+    digest_written = False
     try:
-        digest_key, _ = write_note(zot, cfg, None, digest_markdown(), digest_tags, [cols["digest"]],
-                                   {"key": existing[0]["key"], "version": existing[0]["version"]}
-                                   if existing else None, kind="digest", day=day)
-        result.update(digest_note_key=digest_key, digest_link=zot.select_link(digest_key), stage="digest_saved")
+        cols = collection_keys(zot, cfg, cache)
+        current = zot.item(result["digest_note_key"]) if result.get("digest_note_key") else None
+        if current and current.get("data", {}).get("deleted"):
+            current = None
+        if current and result.get("digest_sha") == digest_sha:
+            digest_key = current["key"]
+            log(f"digest {digest_key} already saved; skipping")
+        else:
+            if not current:
+                existing = [e for e in zot.get_all(f"/collections/{cols['digest']}/items", {"itemType": "note"})
+                            if not e.get("data", {}).get("parentItem")
+                            and note_matches(e.get("data", {}), "digest", day)]
+                current = existing[0] if existing else None
+            digest_key, _ = write_note(zot, cfg, None, digest_markdown(), digest_tags, [cols["digest"]],
+                                       {"key": current["key"], "version": current["version"]}
+                                       if current else None, kind="digest", day=day)
+            digest_written = True
+        result.update(digest_note_key=digest_key, digest_link=zot.select_link(digest_key),
+                      digest_sha=digest_sha, stage="digest_saved")
         checkpoint()
     except (ZoteroError, URLError, OSError) as err:
-        result["errors"].append(f"digest: {err}")
-        result["stage"] = "digest_failed"
-        checkpoint()
-        raise ZoteroError(f"Digest failed; no papers were saved: {err}") from None
+        fail("digest_failed", "digest", err)
+        raise ZoteroError(f"Digest failed; no papers were written in this run: {err}") from None
 
-    to_write = [p["arxiv_id"] for p in papers if p["tier"] in write_tiers]
+    # Stage 3: papers. Finished papers with an unchanged payload are skipped.
+    def finished(aid: str) -> bool:
+        e = result["papers"][aid]
+        return bool(e.get("item_key") and e.get("review_note_key") and not e.get("error")
+                    and e.get("payload_sha") == fingerprints[aid])
+
+    to_write = [p["arxiv_id"] for p in papers if p["tier"] in write_tiers and not finished(p["arxiv_id"])]
     try:
         arxiv_meta = fetch_arxiv_meta_batch(to_write) if to_write else {}
     except (URLError, OSError, ET.ParseError) as err:
@@ -1051,6 +1233,11 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
         entry = result["papers"][aid]
         if tier not in write_tiers:
             continue
+        if aid not in to_write:
+            run["skipped"].append(aid)
+            continue
+        run["processed"].append(aid)
+        entry["attempts"] = entry.get("attempts", 0) + 1
         try:
             meta = ({**meta_by_id.get(aid, {}), **arxiv_meta[aid]} if aid in arxiv_meta
                     else meta_by_id.get(aid) or fetch_arxiv_meta(aid))
@@ -1060,9 +1247,14 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
             tags = clean_tags([*_direction_tags(dirs), *p.get("tags", [])])
             fallback = selected[0] if not p["collection_keys"] else None
             key, created, final_cols = ensure_paper(zot, meta, selected, tags, cache, fallback_collection=fallback)
-            entry.update(item_key=key, created=created, zotero_link=zot.select_link(key),
+            # Cumulative: a paper absent before the task was created by it, whichever run did so.
+            if created and "created_in_run" not in entry:
+                entry["created_in_run"] = run["run"]
+            entry.update(item_key=key, zotero_link=zot.select_link(key),
+                         created=bool(entry.get("created") or created or entry.get("existing_item_key") is None),
                          collection_keys=final_cols, requested_collection_keys=selected,
                          classification_reason=p.get("classification_reason", ""))
+            checkpoint()  # keep the item key even if a later step fails
             kids = children(zot, key)
             entry["pdf_key"] = ensure_pdf(zot, key, aid, cfg.get("attach_pdf", "link"), kids)
             review_tags = []
@@ -1076,18 +1268,22 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
             entry["attanger"] = wait_for_attanger(zot, key, cfg)
             if entry["attanger"].get("key"):
                 entry["pdf_key"] = entry["attanger"]["key"]
+            entry["payload_sha"] = fingerprints[aid]
+            entry.pop("error", None)
             log(f"{aid} [{tier}] -> {key} ({'new' if created else 'existing'})")
         except (ZoteroError, URLError, OSError, ET.ParseError) as err:
             entry["error"] = str(err)
-            result["errors"].append(f"{aid}: {err}")
             log(f"FAILED {aid}: {err}")
         checkpoint()
+    if run["skipped"]:
+        log(f"skipped {len(run['skipped'])} paper(s) finished by an earlier run")
 
     # The overview already exists; only refresh its links after paper insertion.
     digest_md = digest_markdown()
     if zot.dry_run:
         temp_file_path("zotero_digest_preview.html").write_text(to_note_html(digest_md), encoding="utf-8")
-    else:
+    elif run["processed"] or digest_written or any(
+            str(e).startswith("digest links") for e in (prior or {}).get("errors", [])):
         try:
             current = zot.item(digest_key)
             if not current:
@@ -1095,27 +1291,39 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
             write_note(zot, cfg, None, digest_md, digest_tags, [cols["digest"]],
                        {"key": digest_key, "version": current["version"]}, kind="digest", day=day)
         except (ZoteroError, URLError, OSError) as err:
-            result["errors"].append(f"digest links: {err}")
+            run_errors.append(f"digest links: {err}")
 
     # History (used by fetch_and_score.py for cross-day dedup), keep 60 days.
     if not zot.dry_run:
         history = load_history()
-        known = {h.get("id") for h in history}
+        known_ids = {h.get("id") for h in history}
         for aid, entry in result["papers"].items():
-            if aid not in known and not entry.get("error"):
+            if aid not in known_ids and entry.get("item_key") and not entry.get("error") \
+                    and not entry.get("removed_from_payload"):
                 history.append({"id": aid, "date": day, "title": entry.get("title", ""),
-                                "tier": entry["tier"], "item_key": entry.get("item_key")})
+                                "tier": entry["tier"], "item_key": entry.get("item_key"),
+                                "created": bool(entry.get("created"))})
         cutoff = (datetime.strptime(day, "%Y-%m-%d").date() - timedelta(days=60)).isoformat()
         save_history([h for h in history if h.get("date", "") >= cutoff])
-    save_cache(cache, zot.dry_run)
 
-    result["stage"] = "papers_partial" if result["errors"] else "papers_saved"
+    current_papers = {aid: e for aid, e in result["papers"].items() if not e.get("removed_from_payload")}
     result["reading_queue"] = [{"arxiv_id": aid, "item_key": e["item_key"]}
-                               for aid, e in result["papers"].items()
+                               for aid, e in current_papers.items()
                                if e["tier"] == "must" and e.get("item_key") and not e.get("error")]
-    checkpoint()
-    written = sum(1 for e in result["papers"].values() if e.get("item_key"))
-    print(f"Wrote {written} papers + digest to Zotero; result: {out}"
+    saved = [e for e in current_papers.values() if e.get("item_key") and not e.get("error")]
+    result["summary"] = {
+        "papers": len(current_papers),
+        "saved": len(saved),
+        "created": sum(1 for e in saved if e.get("created")),
+        "existing": sum(1 for e in saved if not e.get("created")),
+        "failed": sum(1 for e in current_papers.values() if e.get("error")),
+        "runs": len(runs),
+    }
+    finish_run("papers_partial" if paper_errors() or run_errors else "papers_saved")
+    s = result["summary"]
+    print(f"Saved {s['saved']} papers ({s['created']} new, {s['existing']} existing) + digest to Zotero "
+          f"after {s['runs']} run(s); this run processed {len(run['processed'])}, "
+          f"skipped {len(run['skipped'])}; result: {out}"
           + (f"; {len(result['errors'])} errors" if result["errors"] else ""))
     if result["errors"]:
         raise SystemExit(2)
@@ -1244,6 +1452,8 @@ def main() -> None:
     p.add_argument("--payload", required=True)
     p.add_argument("--enriched")
     p.add_argument("--output")
+    p.add_argument("--fresh", action="store_true",
+                   help="ignore the previous result of this day's task and redo every stage")
     p = sub.add_parser("upsert-paper")
     p.add_argument("--arxiv", required=True)
     p.add_argument("--directions", nargs="*", help="optional research tags only; does not select collections")

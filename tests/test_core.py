@@ -181,6 +181,16 @@ class ZoteroPayloadTests(unittest.TestCase):
             self.assertIn('href="zotero://select/library/items/DRY', preview)
             self.assertIn('href="https://arxiv.org/abs/2312.00752"', preview)  # skip tier -> arXiv link
             self.assertFalse((t / "zotero-daily-papers" / "history.json").exists())
+            self.assertTrue(result["dry_run"])
+            # A dry run never overwrites a real task record.
+            real = {"date": "2026-11-04", "library": "/users/0", "papers": {}, "runs": []}
+            (t / "zotero_push_result.json").write_text(json.dumps(real))
+            run = subprocess.run([sys.executable, str(ROOT / "skills/_zotero_shared/zotero_push.py"), "--dry-run",
+                                  "push-daily", "--payload", str(t / "p.json"), "--enriched", str(t / "e.json")],
+                                 env=env, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(json.loads((t / "zotero_push_result.json").read_text()), real)
+            self.assertTrue(json.loads((t / "zotero_push_result.dry-run.json").read_text())["dry_run"])
 
     def test_history_path_setting(self):
         import zdp_config
