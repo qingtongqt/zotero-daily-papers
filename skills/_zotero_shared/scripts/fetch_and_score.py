@@ -134,13 +134,15 @@ def _parse_hf_item(item: dict, source: str) -> tuple[str, dict] | None:
                 names.append(a.get("name", ""))
             elif isinstance(a, str):
                 names.append(a)
-        authors = ", ".join(n for n in names if n)
+        names = [n for n in names if n]
+        authors = ", ".join(names)
     else:
-        authors = str(authors_raw)
+        names, authors = None, str(authors_raw)
 
     paper = {
         "title": " ".join((p.get("title") or "").split()),
         "authors": authors,
+        "author_list": names,
         "affiliations": "",
         "abstract": " ".join((p.get("summary") or "").split()),
         "url": f"https://arxiv.org/abs/{arxiv_id}",
@@ -338,6 +340,7 @@ def fetch_arxiv_papers(days: int = 1) -> list[dict]:
         papers.append({
             "title": title,
             "authors": ", ".join(names),
+            "author_list": names,
             "affiliations": ", ".join(sorted(affiliations)) if affiliations else "",
             "abstract": abstract,
             "url": entry_url,
