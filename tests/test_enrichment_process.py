@@ -73,5 +73,21 @@ class EnrichmentProcessTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(ep.valid_arxiv_id(aid), aid)
 
 
+    async def test_enrichment_keeps_the_original_author_list(self):
+        authors = 'Alice Wang, Bob Li, Carol Xu, Dan Zhou, Eve Sun, Frank Ma, Grace He, Henry Lu'
+        html = ('<html>' + 'x' * 1000 + '<span class="ltx_personname">Alice Wang<span class="ltx_sup">1</span>, '
+                'Bob Li</span><span class="ltx_personname">Baidu Inc.</span>'
+                '<span class="ltx_role_affil">Example University</span><div class="ltx_abstract"></div></html>')
+        abs_html = ('<meta name="citation_author" content="Wang, Alice">'
+                    '<meta name="citation_author_institution" content="Example University">')
+        for pages in ([html], ['', abs_html]):
+            with self.subTest(html=bool(pages[0])), \
+                    patch.object(ep, 'curl_fetch', new_callable=AsyncMock, side_effect=pages), \
+                    patch.object(ep, 'extract_affiliations_pdf', new_callable=AsyncMock, return_value=[]):
+                result = await ep.enrich_one({'arxiv_id': '2311.16922', 'authors': authors}, asyncio.Semaphore(1))
+            self.assertEqual(result['authors'], authors)
+            self.assertEqual(result['affiliations'], 'Example University')
+
+
 if __name__ == '__main__':
     unittest.main()
