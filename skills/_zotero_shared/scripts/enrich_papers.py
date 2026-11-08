@@ -142,18 +142,6 @@ def extract_figure_url(html: str, arxiv_id: str) -> str:
     return ""
 
 
-def extract_authors_html(html: str) -> list[str]:
-    """Extract authors from ltx_personname spans."""
-    matches = re.findall(r'class="ltx_personname"[^>]*>(.*?)</span>', html, re.DOTALL)
-    authors = []
-    for m in matches:
-        name = strip_tags(m).strip()
-        # Skip if it looks like an affiliation or footnote
-        if name and len(name) < 80 and not any(kw in name.lower() for kw in ["university", "institute", "department"]):
-            authors.append(name)
-    return authors
-
-
 def extract_affiliations_html(html: str) -> list[str]:
     """Extract affiliations from HTML paper using multiple strategies."""
     affils = set()
@@ -319,14 +307,12 @@ def extract_method_summary(html: str, paper_title: str = "") -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def extract_from_abs(html: str) -> dict:
-    """Extract authors and affiliations from arxiv abs page meta tags."""
-    authors = re.findall(r'<meta\s+name="citation_author"\s+content="([^"]+)"', html)
-    authors = [a.strip() for a in authors if a.strip()]
+    """Extract affiliations from arxiv abs page meta tags."""
     affils = set()
     for m in re.findall(r'<meta\s+name="citation_author_institution"\s+content="([^"]+)"', html):
         if m.strip():
             affils.add(m.strip())
-    return {"authors": authors, "affiliations": list(affils)}
+    return {"affiliations": list(affils)}
 
 
 
@@ -413,7 +399,6 @@ async def enrich_one(paper: dict, sem: asyncio.Semaphore) -> dict:
         html = await curl_fetch(html_url, sem)
 
         # Parse HTML if we got content
-        html_authors = []
         html_affiliations = []
         figure_url = ""
         section_headers = []
@@ -423,22 +408,19 @@ async def enrich_one(paper: dict, sem: asyncio.Semaphore) -> dict:
 
         if html and len(html) > 1000:
             figure_url = extract_figure_url(html, arxiv_id)
-            html_authors = extract_authors_html(html)
             html_affiliations = extract_affiliations_html(html)
             section_headers = extract_section_headers(html)
             captions = extract_captions(html)
             method_names = extract_method_names(html, title)
             method_summary = extract_method_summary(html, title)
 
-        # Abs fallback if HTML authors OR affiliations are empty
-        abs_authors = []
+        # Abs fallback if HTML affiliations are empty
         abs_affiliations = []
-        if not html_authors or not html_affiliations:
+        if not html_affiliations:
             abs_url = f"https://arxiv.org/abs/{arxiv_id}"
             abs_html = await curl_fetch(abs_url, sem)
             if abs_html:
                 abs_data = extract_from_abs(abs_html)
-                abs_authors = abs_data["authors"]
                 abs_affiliations = abs_data["affiliations"]
 
         # PDF fallback for affiliations if still empty
@@ -461,12 +443,9 @@ async def enrich_one(paper: dict, sem: asyncio.Semaphore) -> dict:
             result["affiliations"] = ", ".join(pdf_affiliations)
         # else: keep whatever was in the input (supports re-enriching enriched data)
 
-        # authors: HTML > abs fallback > keep existing input
-        if html_authors:
-            result["authors"] = ", ".join(html_authors)
-        elif abs_authors:
-            result["authors"] = ", ".join(abs_authors)
-        # else: keep original
+        # authors: never touched here. The input list comes from the HF / arXiv APIs and is
+        # authoritative; page scraping truncated it, picked up organisations, and returned
+        # "Last, First" names that later split into two creators each.
 
         # Other enriched fields
         result["section_headers"] = section_headers

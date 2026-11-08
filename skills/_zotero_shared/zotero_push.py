@@ -466,12 +466,13 @@ def _parse_arxiv_entry(entry, ns) -> dict:
     aid = norm_arxiv(text("a:id"))
     cat = entry.find("x:primary_category", ns)
     categories = [c.get("term", "") for c in entry.findall("a:category", ns) if c.get("term")]
+    names = [" ".join((a.findtext("a:name", "", ns)).split()) for a in entry.findall("a:author", ns)]
     return {
         "arxiv_id": aid,
         "title": text("a:title"),
         "abstract": text("a:summary"),
-        "authors": ", ".join(" ".join((a.findtext("a:name", "", ns)).split())
-                             for a in entry.findall("a:author", ns)),
+        "authors": ", ".join(names),
+        "author_list": names,
         # The translator dates an arXiv preprint by its latest version ("updated").
         "date": (text("a:updated") or text("a:published"))[:10],
         "published": text("a:published")[:10],
@@ -522,7 +523,11 @@ def split_name(name: str) -> dict:
 def item_payload(meta: dict, collections: list[str], tags: list[str], item_type: str = "preprint") -> dict:
     """Mirror what Zotero's arXiv translator saves for "Add Item by Identifier"."""
     aid = meta["arxiv_id"]
-    authors = [a for a in re.split(r",\s*", meta.get("authors") or "") if a.strip()]
+    # Prefer the per-author list; splitting the joined string breaks names that contain commas.
+    authors = meta.get("author_list")
+    if not isinstance(authors, list):
+        authors = re.split(r",\s*", meta.get("authors") or "")
+    authors = [a for a in authors if isinstance(a, str) and a.strip()]
     primary = meta.get("category") or ""
     extra = f"arXiv:{aid}" + (f" [{primary}]" if primary else "")
     subject_tags = [{"tag": ARXIV_SUBJECTS[c], "type": 1}

@@ -141,6 +141,11 @@ class RankerTests(unittest.TestCase):
 
 
 class ZoteroPayloadTests(unittest.TestCase):
+    def test_item_payload_prefers_author_list(self):
+        meta = {"arxiv_id": "2311.16922", "title": "T", "authors": "John Smith, Jr., Ann Lee",
+                "author_list": ["John Smith, Jr.", "Ann Lee"]}
+        self.assertEqual(len(zp.item_payload(meta, [], [])["creators"]), 2)
+
     def test_item_payload(self):
         obj = zp.item_payload({"arxiv_id": "2311.16922", "title": "VCD", "authors": "Sicong Leng, Plato"},
                               ["C1"], ["dp", "dp"])
