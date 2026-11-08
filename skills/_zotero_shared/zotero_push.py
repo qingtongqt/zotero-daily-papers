@@ -709,7 +709,10 @@ def children(zot: Zotero, item_key: str) -> list[dict]:
     return zot.get_all(f"/items/{item_key}/children")
 
 
-def ensure_pdf(zot: Zotero, item_key: str, aid: str, mode: str, kids: list[dict]) -> str | None:
+def ensure_pdf(zot: Zotero, item_key: str, aid: str, mode: str, kids: list[dict],
+               status: dict | None = None) -> str | None:
+    """Return the PDF attachment key. In upload mode, `status["fallback"]` is set when only a
+    linked URL could be attached, so a later run knows to try the download again."""
     if mode == "none":
         return None
     pdf_url = f"https://arxiv.org/pdf/{aid}"
@@ -759,6 +762,8 @@ def ensure_pdf(zot: Zotero, item_key: str, aid: str, mode: str, kids: list[dict]
                 # Authorization/version failures must stop; retry can reuse the pending attachment.
                 raise
             log(f"PDF upload failed for {aid} ({err}); falling back to a linked URL")
+        if status is not None:
+            status["fallback"] = True
     if link_key:
         return link_key
     return zot.create([{"itemType": "attachment", "parentItem": item_key, "linkMode": "linked_url",
@@ -1048,11 +1053,12 @@ def _read_record(path: Path) -> dict | None:
     return record if isinstance(record, dict) else None
 
 
-def _task_record(record: dict | None, day: str, library: str) -> dict | None:
-    """The previous result of the same task (same day and library), if it can be resumed."""
+def _task_record(record: dict | None, day: str, identity: str) -> dict | None:
+    """The previous result of the same task (same day and library instance), if it can be resumed."""
     if not record or record.get("dry_run"):
         return None
-    if record.get("date") != day or record.get("library") != library:
+    # The identity includes the local Zotero-Server-ID: another profile on the same port is another library.
+    if record.get("date") != day or record.get("library_identity") != identity:
         log(f"previous result is for another task ({record.get('date')}); starting a new record")
         return None
     return record
@@ -1094,7 +1100,7 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
     if zot.dry_run and record and not record.get("dry_run"):
         out = out.with_name(f"{out.stem}.dry-run{out.suffix}")
         log(f"dry run: keeping the real task record; writing the plan to {out}")
-    prior = None if getattr(args, "fresh", False) else _task_record(record, day, library)
+    prior = None if getattr(args, "fresh", False) else _task_record(record, day, zot.cache_identity)
     if prior:
         log(f"resuming the {day} task record ({len(prior.get('runs', []))} earlier run(s))")
 
@@ -1104,7 +1110,8 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
     run = {"run": len(runs) + 1, "started_at": _now(), "resumed": bool(prior),
            "processed": [], "skipped": [], "errors": []}
     runs.append(run)
-    result = {"date": day, "library": library, "classification_mode": mode,
+    result = {"date": day, "library": library, "library_identity": zot.cache_identity,
+              "classification_mode": mode,
               "papers": {aid: dict(e) for aid, e in (prior or {}).get("papers", {}).items()},
               "errors": [], "stage": "started", "runs": runs}
     for k in ("digest_note_key", "digest_link", "digest_sha"):
@@ -1163,6 +1170,8 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
             entry.pop("removed_from_payload", None)
             entry.update(tier=paper["tier"],
                          title=meta_by_id.get(aid, {}).get("title") or entry.get("title", ""))
+            if paper["tier"] not in write_tiers:
+                entry.pop("error", None)  # no longer written; the failure stays in its run's history
             # Recorded once per task: whether the paper was in the library before the first run.
             if "existing_item_key" not in entry:
                 found = find_item(zot, aid, cache)
@@ -1220,7 +1229,7 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
     def finished(aid: str) -> bool:
         e = result["papers"][aid]
         return bool(e.get("item_key") and e.get("review_note_key") and not e.get("error")
-                    and e.get("payload_sha") == fingerprints[aid])
+                    and not e.get("pdf_fallback") and e.get("payload_sha") == fingerprints[aid])
 
     to_write = [p["arxiv_id"] for p in papers if p["tier"] in write_tiers and not finished(p["arxiv_id"])]
     try:
@@ -1256,7 +1265,13 @@ def cmd_push_daily(zot: Zotero, cfg: dict, args) -> None:
                          classification_reason=p.get("classification_reason", ""))
             checkpoint()  # keep the item key even if a later step fails
             kids = children(zot, key)
-            entry["pdf_key"] = ensure_pdf(zot, key, aid, cfg.get("attach_pdf", "link"), kids)
+            pdf_status: dict = {}
+            entry["pdf_key"] = ensure_pdf(zot, key, aid, cfg.get("attach_pdf", "link"), kids, pdf_status)
+            # An upload that fell back to a link is retried by the next run, like before resume existed.
+            if pdf_status.get("fallback"):
+                entry["pdf_fallback"] = True
+            else:
+                entry.pop("pdf_fallback", None)
             review_tags = []
             same_day = next((k for k in kids if k.get("data", {}).get("itemType") == "note"
                              and note_matches(k.get("data", {}), "review", day)), None)

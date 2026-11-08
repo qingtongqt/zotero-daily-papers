@@ -296,6 +296,50 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('Review v2', zot.items[note]['data']['note'])
         self.assertTrue(second['papers']['2311.16922']['created'])
 
+    def test_failed_pdf_upload_is_retried_on_resume(self):
+        self.cfg['attach_pdf'] = 'upload'
+        zot = MemoryZotero()
+        zot.upload_file = lambda *a: None
+
+        class Pdf:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return b'%PDF-1.7 ...'
+
+        with patch.object(zp, 'urlopen', side_effect=zp.URLError('offline')):
+            first = self.run_pipeline(zot)
+        self.assertEqual(first['stage'], 'papers_saved')
+        self.assertTrue(first['papers']['2311.16922']['pdf_fallback'])
+        with patch.object(zp, 'urlopen', return_value=Pdf()) as fetch:
+            second = self.run_pipeline(zot)
+        fetch.assert_called_once()
+        self.assertEqual(second['runs'][1]['processed'], ['2311.16922'])
+        self.assertNotIn('pdf_fallback', second['papers']['2311.16922'])
+        pdf = zot.items[second['papers']['2311.16922']['pdf_key']]['data']
+        self.assertEqual(pdf['linkMode'], 'imported_file')
+        self.assertTrue(second['papers']['2311.16922']['created'])
+
+    def test_record_of_another_library_instance_is_not_resumed(self):
+        zot = MemoryZotero()
+        self.run_pipeline(zot)
+        other = MemoryZotero()
+        other.cache_identity = 'memory://library#other-profile'
+        result = self.run_pipeline(other)
+        self.assertEqual(len(result['runs']), 1)
+        self.assertEqual(result['runs'][0]['processed'], ['2311.16922'])
+        self.assertEqual(result['library_identity'], 'memory://library#other-profile')
+
+    def test_error_of_a_paper_moved_to_skip_is_retired(self):
+        zot = MemoryZotero()
+        with patch.object(zp, 'ensure_paper', side_effect=zp.ZoteroError('paper rejected')), \
+                self.assertRaises(SystemExit):
+            self.run_pipeline(zot)
+        self.payload['papers'][0]['tier'] = 'skip'
+        result = self.run_pipeline(zot)
+        self.assertEqual(result['stage'], 'papers_saved')
+        self.assertEqual(result['errors'], [])
+        self.assertIn('2311.16922: paper rejected', result['runs'][0]['errors'])
+
     def test_record_of_another_day_is_not_resumed(self):
         zot = MemoryZotero()
         self.run_pipeline(zot)
