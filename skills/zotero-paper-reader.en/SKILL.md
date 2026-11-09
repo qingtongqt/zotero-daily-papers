@@ -7,7 +7,7 @@ description: Deep-read or quick-read a given paper, arXiv link or existing Zoter
 
 Let `{SKILL_DIR}` be the directory of this file and `{SHARED}` the sibling `../_zotero_shared`. Relative links are based on this file.
 Run `python3 "{SHARED}/zdp_config.py"` to get the configuration and temp directory.
-Write in English by default; follow the user's language and any "don't save" request.
+Write in English by default; follow the user's language.
 
 ## Locate the paper and existing notes
 
@@ -23,7 +23,6 @@ updates must keep the user's handwritten content, and a quick summary must never
 Always hand a full deep read (full-note) to its own sub-agent so the current conversation cannot pollute the note: after locating the paper
 and checking existing notes above, the main agent dispatches one fresh sub-agent per paper following the [sub-agent brief](references/subagent-brief.md),
 waits for the result and reads it back. The main agent neither reads the full text nor writes the note body itself.
-When the user says "don't save", say so in the brief and the sub-agent only writes the temporary note.
 Quick reads, critical analysis, formula extraction and other short tasks are done directly in the current session.
 A sub-agent running from the brief starts at the two sections below.
 
@@ -40,7 +39,6 @@ When the user asks for critical analysis or formula extraction, organize the con
 
 ## Save and self-check
 
-When the user explicitly says "don't save", answer only in the chat and skip the writes below.
 For a new paper, after reading and writing the note, run the [save skill](../zotero-paper-save/SKILL.md); skip saving for existing items.
 
 ```bash

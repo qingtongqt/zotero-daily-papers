@@ -39,7 +39,7 @@
 - 关键判断就近标出处（§、Table、Figure、Eq.），区分作者主张、论文证据和你的推断。
 - 全文读不到的部分，写明实际阅读范围。
 
-完成后用 add-note 保存，并用 notes --item 读回。用户要求不保存时，只写临时笔记，note_key 留空。
+完成后用 add-note 保存，并用 notes --item 读回。
 最后回复一行 JSON，方便主 Agent 记录进度：
 {"arxiv_id": "...", "item_key": "...", "note_key": "...", "status": "done|failed", "scope": "full-text|partial|abstract-only", "reason": "失败或部分阅读的原因，没有则留空", "verdict": "一句话锐评"}
 ````

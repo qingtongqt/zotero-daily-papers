@@ -7,7 +7,7 @@ description: 精读或快速阅读指定论文、arXiv 链接或已有 Zotero �
 
 以本文件所在目录为 `{SKILL_DIR}`，同级的 `../_zotero_shared` 为 `{SHARED}`。相对链接以本文件为基准。
 运行 `python3 "{SHARED}/zdp_config.py"` 获取配置和临时目录。
-默认中文；遵循用户语言及“不保存”要求。
+默认中文；遵循用户语言。
 
 ## 定位与已有笔记
 
@@ -22,7 +22,7 @@ description: 精读或快速阅读指定论文、arXiv 链接或已有 Zotero �
 
 完整精读（full-note）一律交给独立子 Agent，避免当前对话污染笔记：主 Agent 完成上面的定位和已有笔记检查后，
 按 [子 Agent 任务卡](references/subagent-brief.md) 为每篇论文派发一个全新子 Agent，等待结果并读回核对。
-主 Agent 不自己读全文、不写笔记正文。用户要求“不保存”时在任务卡中写明，子 Agent 只写临时笔记。
+主 Agent 不自己读全文、不写笔记正文。
 快速阅读、批判分析、公式提取等短任务在当前会话直接完成。
 按任务卡运行的子 Agent 从下面两节开始。
 
@@ -39,7 +39,6 @@ description: 精读或快速阅读指定论文、arXiv 链接或已有 Zotero �
 
 ## 保存与自检
 
-明确“不保存”时只在聊天回答，跳过以下写入。
 新论文读完并写好笔记后执行 [保存 Skill](../zotero-paper-save/SKILL.md)；已有条目跳过入库。
 
 ```bash

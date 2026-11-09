@@ -41,7 +41,7 @@ What to focus on:
 - Cite the source next to key claims (§, Table, Figure, Eq.) and separate the authors' claims, the paper's evidence and your inferences.
 - For any part of the full text you could not read, state the actual reading scope.
 
-When done, save with add-note and read it back with notes --item. When the user asked not to save, only write the temporary note and leave note_key empty.
+When done, save with add-note and read it back with notes --item.
 End with one line of JSON so the main agent can record progress:
 {"arxiv_id": "...", "item_key": "...", "note_key": "...", "status": "done|failed", "scope": "full-text|partial|abstract-only", "reason": "why it failed or was partial, empty otherwise", "verdict": "one-sentence verdict"}
 ````
