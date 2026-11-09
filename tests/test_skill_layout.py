@@ -15,6 +15,10 @@ installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 
 
+# Local files that are not part of the skills: Python caches and macOS Finder metadata.
+IGNORED = {'__pycache__', '.DS_Store'}
+
+
 def read(path: Path) -> str:
     return path.read_text(encoding='utf-8')
 
@@ -35,10 +39,10 @@ class LayoutTests(unittest.TestCase):
     def test_language_trees_mirror_each_other_without_symlinks(self):
         zh, en = installer.sources('zh'), installer.sources('en')
         for name in installer.SKILLS:
-            docs = lambda root: sorted(p.relative_to(root) for p in root.rglob('*'))
+            docs = lambda root: sorted(p.relative_to(root) for p in root.rglob('*') if p.name not in IGNORED)
             self.assertEqual(docs(zh[name]), docs(en[name]))
             self.assertNotRegex(read(en[name] / 'SKILL.md'), '[一-鿿]{4}')
-        self.assertEqual({p.name for p in installer.SKILLS_DIR.iterdir() if p.name != '__pycache__'},
+        self.assertEqual({p.name for p in installer.SKILLS_DIR.iterdir() if p.name not in IGNORED},
                          {p.name for p in (*zh.values(), *en.values())})
         # Symlinks stored in git break checkouts with core.symlinks=false (the Windows default).
         self.assertEqual([p for p in ROOT.rglob('*') if p.is_symlink() and '.git' not in p.parts], [])

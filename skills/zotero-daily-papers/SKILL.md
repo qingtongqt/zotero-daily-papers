@@ -58,6 +58,8 @@ python3 "{SHARED}/zotero_push.py" push-daily --payload "{TEMP_DIR}/zotero_payloa
 
 总览及论文入库阶段完成后，对 `reading_queue` 中每篇执行
 [zotero-paper-reader](../zotero-paper-reader/SKILL.md)，传入 arXiv ID 和已有 item_key，跳过再次入库。
+每篇按 [子 Agent 任务卡](../zotero-paper-reader/references/subagent-brief.md) 单独启动全新子 Agent 精读，
+任务卡不附带候选、评分和锐评，避免前面阶段的上下文影响笔记；主 Agent 只派发、读回核对和记录进度。
 默认精读全部必读论文，不把短评当精读；用户要求精读全部入选论文时扩大到所有成功入库项。
 每篇保存后，在 `{TEMP_DIR}/reading_progress.json` 记录 arXiv ID、item_key、note_key、状态及失败原因。
 进度必须依据实际写入及读回结果；不能因为仅有条目或队列就标记精读完成。

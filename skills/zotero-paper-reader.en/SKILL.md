@@ -18,6 +18,15 @@ Note length and formula counts are hints, not completeness criteria; when needed
 and check coverage of method, experiments, main formulas, main table, key figures and sources. A complete note that fits the request can be reused;
 updates must keep the user's handwritten content, and a quick summary must never overwrite a full note. Never claim the original was kept based only on note statistics.
 
+## Hand deep reads to a sub-agent
+
+Always hand a full deep read (full-note) to its own sub-agent so the current conversation cannot pollute the note: after locating the paper
+and checking existing notes above, the main agent dispatches one fresh sub-agent per paper following the [sub-agent brief](references/subagent-brief.md),
+waits for the result and reads it back. The main agent neither reads the full text nor writes the note body itself.
+When the user says "don't save", say so in the brief and the sub-agent only writes the temporary note.
+Quick reads, critical analysis, formula extraction and other short tasks are done directly in the current session.
+A sub-agent running from the brief starts at the two sections below.
+
 ## Get the full text and read
 
 1. For an existing item, get real paths with `attachments --item <KEY>` and prefer a local PDF with exists=true.
@@ -42,4 +51,4 @@ python3 "{SHARED}/zotero_push.py" notes --item <KEY>
 Use `--replace` on an existing note of the same kind only after keeping the user's content. Confirm the child note really exists and matches its sources.
 When citing figures, include a Zotero deep link (zotero://open-pdf/library/...) down to the page.
 When called from the daily pipeline, return the arXiv ID, item_key, note_key and done/failed status so the entry skill can update reading progress.
-Finally give the user a short verdict, the Zotero link and anything actually left unfinished.
+The sub-agent ends with one line of JSON as the brief says; after reading it back, the main agent gives the user a short verdict, the Zotero link and anything actually left unfinished.

@@ -18,6 +18,14 @@ description: 精读或快速阅读指定论文、arXiv 链接或已有 Zotero �
 核对方法、实验、主要公式、主表格、关键图及来源覆盖。完整且符合请求的笔记可复用；
 更新须保留用户手写内容，快速摘要不能覆盖 full-note。不能只读笔记摘要统计就声称保留了原文。
 
+## 交给子 Agent 精读
+
+完整精读（full-note）一律交给独立子 Agent，避免当前对话污染笔记：主 Agent 完成上面的定位和已有笔记检查后，
+按 [子 Agent 任务卡](references/subagent-brief.md) 为每篇论文派发一个全新子 Agent，等待结果并读回核对。
+主 Agent 不自己读全文、不写笔记正文。用户要求“不保存”时在任务卡中写明，子 Agent 只写临时笔记。
+快速阅读、批判分析、公式提取等短任务在当前会话直接完成。
+按任务卡运行的子 Agent 从下面两节开始。
+
 ## 获取全文与阅读
 
 1. 已有条目用 `attachments --item <KEY>` 获取真实路径，优先读取 exists=true 的本机 PDF。
@@ -42,4 +50,4 @@ python3 "{SHARED}/zotero_push.py" notes --item <KEY>
 已有同类笔记需保留用户内容后才用 `--replace`。确认实际子笔记存在，内容与来源相符。
 需要引用图像时附上 Zotero Deep Link (zotero://open-pdf/library/...)，精确到页。
 每日调用时返回 arXiv ID、item_key、note_key、完成/失败状态，供总入口更新阅读进度。
-最后向用户给简短锐评、Zotero 链接及实际未完成项。
+子 Agent 按任务卡最后输出一行 JSON；主 Agent 读回核对后，向用户给简短锐评、Zotero 链接及实际未完成项。
