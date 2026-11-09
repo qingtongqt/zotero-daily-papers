@@ -34,6 +34,9 @@ Write Markdown; `zotero_push.py add-note` converts it to Zotero note HTML. Rules
 
 - **Benchmarks**: …  **Base models**: …  **Baselines**: …  **Compute / decoding settings**: …
 
+### Main results
+
+{Key numbers from the main table and the gap to the strongest baseline (Table N); a Markdown table is fine}
 
 ## Relation to my research directions
 

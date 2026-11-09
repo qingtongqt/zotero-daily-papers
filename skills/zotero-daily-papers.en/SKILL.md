@@ -61,6 +61,8 @@ Never ignore errors silently; reading can continue for the successful part, and 
 
 After the digest and paper saving stages are complete, run
 [zotero-paper-reader](../zotero-paper-reader/SKILL.md) for each entry of `reading_queue`, passing the arXiv ID and the existing item_key so saving is skipped.
+Deep-read each paper in its own fresh sub-agent following the [sub-agent brief](../zotero-paper-reader/references/subagent-brief.md);
+the brief carries no candidates, scores or reviews, so earlier stages cannot pollute the note. The main agent only dispatches, reads back and records progress.
 By default deep-read all must-read papers; a short review is not a deep read. When the user asks to deep-read every selected paper, extend to all successfully saved items.
 After each save, record the arXiv ID, item_key, note_key, status and failure reason in `{TEMP_DIR}/reading_progress.json`.
 Progress must be based on actual writes and read-backs; never mark a reading complete just because the item exists or is queued.
