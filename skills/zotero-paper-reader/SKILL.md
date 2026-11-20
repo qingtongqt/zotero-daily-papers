@@ -15,7 +15,7 @@ description: 精读或快速阅读指定论文、arXiv 链接或已有 Zotero �
 每日流程传入 item_key 时直接复用，不再次入库或重新分类。
 单篇先运行 `find --arxiv <ID>`；已存在则 `notes --item <KEY>` 检查已有笔记。
 笔记字数和公式数量只是线索，不是完整性判据；必要时通过本地 API 的 item GET 读取 note HTML，
-核对方法、实验、主要公式、主表格、关键图及来源覆盖。完整且符合请求的笔记可复用；
+核对是否把论文讲清楚、内容是否有原文依据。符合请求的笔记可复用；
 更新须保留用户手写内容，快速摘要不能覆盖 full-note。不能只读笔记摘要统计就声称保留了原文。
 
 ## 交给子 Agent 精读
@@ -30,9 +30,8 @@ description: 精读或快速阅读指定论文、arXiv 链接或已有 Zotero �
 
 1. 已有条目用 `attachments --item <KEY>` 获取真实路径，优先读取 exists=true 的本机 PDF。
 2. 无可用附件时读取 arXiv HTML，失败回退 PDF；阅读来源不偷偷换版本。
-3. 按 [精读模板](references/paper-note-template.md) 写临时 Markdown。
-4. “与我研究方向的关系”栏目按有效配置 daily_papers.directions 的 name 逐项生成。
-5. 全文不可得时明确阅读范围，不把摘要笔记当作完整精读；不凑字数、公式或图表。
+3. 通读后，以“讲一下这篇文章”为任务写入临时Markdown。
+4. 全文不可得时明确阅读范围，不把摘要笔记当作完整精读。
 
 “快速看一下”写 300–600 字要点，kind=quick；默认完整阅读用 full-note。
 用户要求批判分析或公式提取时按要求组织内容，不强行扩展成完整精读。

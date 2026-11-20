@@ -11,7 +11,7 @@ Just say "today's paper recommendations" in the agent chat and the rest happens 
 
 - **Daily recommendations**: fetch new arXiv papers and Hugging Face trending papers → filter and score by your research directions → deduplicate against your Zotero library → review each paper.
 - **Automatic saving**: save today's digest first, then the selected papers (with PDF and review child note), and finally backfill the item links in the digest.
-- **Deep-reading notes**: read the full text of must-read papers and write a note with method, formulas, main results table, plus explanations of key figures with links to their pages in the PDF (figures are not embedded in local mode), saved as a child note.
+- **Deep-reading notes**: give a fresh sub-agent the task "Explain this paper" for each must-read paper and save the explanation as a Zotero child note.
 - **Standalone use**: you can also just save a paper, or just deep-read a paper.
 - **Safe to rerun**: reruns deduplicate first and reuse existing items and notes instead of creating new ones; your manual collections and attachments are kept. Read requests retry transient 429/5xx errors with backoff, and a same-day rerun resumes only the unfinished papers while keeping one cumulative result record.
 - **Local first**: writes through Zotero 10's local API; no cloud API key needed, and `zotero.sqlite` is never read or written directly.
@@ -27,7 +27,7 @@ Just say "today's paper recommendations" in the agent chat and the rest happens 
 6. **Save papers**: into "Pending" or a matching existing collection.
 7. **Deep-read**: write deep-reading notes for must-read papers as child notes.
 
-Scoring, reviewing and deep reading are all done by the agent in the current conversation; the scripts never call any paid model API.
+Scoring and reviewing are done by the main agent, and full deep reads by fresh sub-agents; the scripts never call any paid model API.
 
 ## Requirements
 
@@ -260,7 +260,7 @@ zotero-daily-papers/
 ├── skills/
 │   ├── zotero-daily-papers/           # entry point and review guide (Chinese; `.en` = English)
 │   ├── zotero-paper-save/             # single-paper saving and classification
-│   ├── zotero-paper-reader/           # reading workflow and note template
+│   ├── zotero-paper-reader/           # reading workflow and sub-agent brief
 │   ├── zotero-*.en/                   # English versions, installed under the same names without `.en`
 │   └── _zotero_shared/                # shared by both languages: scripts/, Zotero scripts, default config, setup notes
 ├── tests/
